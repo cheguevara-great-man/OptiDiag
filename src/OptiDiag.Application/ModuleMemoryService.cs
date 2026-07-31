@@ -87,6 +87,43 @@ public sealed class ModuleMemoryService
         }
     }
 
+    public async Task<byte> ReadByteAsync(
+        byte deviceAddress,
+        byte? page,
+        byte offset,
+        byte pageSelectOffset = 127,
+        CancellationToken cancellationToken = default)
+    {
+        await _operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (page.HasValue)
+            {
+                await SelectPageCoreAsync(
+                    deviceAddress,
+                    page.Value,
+                    pageSelectOffset,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            var data = await _adapter.ReadRegistersAsync(
+                deviceAddress,
+                offset,
+                1,
+                cancellationToken).ConfigureAwait(false);
+            if (data.Length != 1)
+            {
+                throw new InvalidDataException($"读取寄存器 0x{offset:X2} 时返回了 {data.Length} 字节。");
+            }
+
+            return data[0];
+        }
+        finally
+        {
+            _operationGate.Release();
+        }
+    }
+
     public async Task WriteByteAsync(
         byte deviceAddress,
         byte? page,
@@ -100,8 +137,11 @@ public sealed class ModuleMemoryService
         {
             if (page.HasValue)
             {
-                await _adapter.WriteRegistersAsync(deviceAddress, pageSelectOffset, new[] { page.Value }, cancellationToken)
-                    .ConfigureAwait(false);
+                await SelectPageCoreAsync(
+                    deviceAddress,
+                    page.Value,
+                    pageSelectOffset,
+                    cancellationToken).ConfigureAwait(false);
             }
 
             await _adapter.WriteRegistersAsync(deviceAddress, offset, new[] { value }, cancellationToken)
@@ -121,28 +161,11 @@ public sealed class ModuleMemoryService
         {
             var selector = request.PageSelectOffset
                 ?? throw new InvalidOperationException($"区域 {request.Id} 设置了页面但未指定 Page Select 偏移。");
-            await _adapter.WriteRegistersAsync(
+            await SelectPageCoreAsync(
                 request.DeviceAddress,
+                request.Page.Value,
                 selector,
-                new[] { request.Page.Value },
                 cancellationToken).ConfigureAwait(false);
-
-            // SFF-8472 requires an unsupported page selection to fall back to 00h.
-            // Reading the selector back prevents us from labelling Page 00h data as
-            // Page 02h/03h on a module that does not implement those optional pages.
-            if (request.Page.Value != 0)
-            {
-                var selected = await _adapter.ReadRegistersAsync(
-                    request.DeviceAddress,
-                    selector,
-                    1,
-                    cancellationToken).ConfigureAwait(false);
-                if (selected[0] != request.Page.Value)
-                {
-                    throw new InvalidDataException(
-                        $"模块未接受页面 0x{request.Page.Value:X2}（读回 0x{selected[0]:X2}）。");
-                }
-            }
         }
 
         var output = new byte[request.Length];
@@ -167,5 +190,37 @@ public sealed class ModuleMemoryService
         }
 
         return output;
+    }
+
+    private async Task SelectPageCoreAsync(
+        byte deviceAddress,
+        byte page,
+        byte pageSelectOffset,
+        CancellationToken cancellationToken)
+    {
+        await _adapter.WriteRegistersAsync(
+            deviceAddress,
+            pageSelectOffset,
+            new[] { page },
+            cancellationToken).ConfigureAwait(false);
+
+        // SFF-8472 requires an unsupported page selection to fall back to 00h.
+        // Reading the selector back prevents both reads and writes from targeting
+        // a different page than the one shown in the UI.
+        if (page == 0)
+        {
+            return;
+        }
+
+        var selected = await _adapter.ReadRegistersAsync(
+            deviceAddress,
+            pageSelectOffset,
+            1,
+            cancellationToken).ConfigureAwait(false);
+        if (selected.Length != 1 || selected[0] != page)
+        {
+            var actual = selected.Length == 1 ? $"0x{selected[0]:X2}" : $"{selected.Length} 字节";
+            throw new InvalidDataException($"模块未接受页面 0x{page:X2}（读回 {actual}）。");
+        }
     }
 }

@@ -436,14 +436,37 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
     public Task ExportRegistersAsync(string path) => _csvExporter.ExportRegistersAsync(path, Registers);
 
-    public async Task WriteSelectedRegisterAsync(string hexValue)
+    public async Task<RegisterValue> ReadRegisterAsync(RegisterValue register)
     {
-        if (!WriteUnlocked)
+        if (!IsConnected)
         {
-            throw new InvalidOperationException("请先开启写操作解锁。 ");
+            throw new InvalidOperationException("请先连接模块会话。");
         }
 
+        var value = await _session.ReadByteAsync(
+            register.DeviceAddress,
+            register.Page,
+            checked((byte)register.Offset)).ConfigureAwait(true);
+        var updated = register with { Value = value };
+        UpdateRegisterValue(register, updated);
+        StatusMessage = $"已读取 {updated.AddressText} = 0x{updated.HexValue}。";
+        AddLog("INFO", StatusMessage);
+        return updated;
+    }
+
+    public Task WriteSelectedRegisterAsync(string hexValue)
+    {
         var register = SelectedRegister ?? throw new InvalidOperationException("请先选择一个寄存器。");
+        return WriteRegisterAsync(register, hexValue, WriteUnlocked);
+    }
+
+    public async Task WriteRegisterAsync(RegisterValue register, string hexValue, bool writeUnlocked)
+    {
+        if (!writeUnlocked)
+        {
+            throw new InvalidOperationException("请先开启写操作解锁。");
+        }
+
         if (register.Access is RegisterAccess.ReadOnly or RegisterAccess.Reserved)
         {
             throw new InvalidOperationException($"{register.Name} 是 {register.Access}，禁止写入。");
@@ -462,6 +485,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
             value).ConfigureAwait(true);
         AddLog("WARN", $"写寄存器 {register.AddressText}: {register.HexValue} -> {value:X2}");
         await RefreshAsync().ConfigureAwait(true);
+        StatusMessage = $"已写入 {register.AddressText}：0x{register.HexValue} → 0x{value:X2}，并完成重新读取。";
     }
 
     public void ClearTraces() => Traces.Clear();
@@ -534,6 +558,30 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         OnPropertyChanged(nameof(SnapshotTime));
         OnPropertyChanged(nameof(ActiveAlarmCount));
         OnPropertyChanged(nameof(ProtocolDetectionEvidence));
+    }
+
+    private void UpdateRegisterValue(RegisterValue previous, RegisterValue updated)
+    {
+        var registerIndex = Registers.IndexOf(previous);
+        if (registerIndex >= 0)
+        {
+            Registers[registerIndex] = updated;
+        }
+
+        if (ReferenceEquals(SelectedRegister, previous) || SelectedRegister == previous)
+        {
+            SelectedRegister = updated;
+        }
+
+        var region = _latest?.Dump.FindRegion(previous.RegionId);
+        var regionIndex = previous.Offset - (region?.Offset ?? 0);
+        if (region is not null && regionIndex >= 0 && regionIndex < region.Data.Length)
+        {
+            region.Data[regionIndex] = updated.Value;
+        }
+
+        Replace(RegisterMapRows, RegisterMapRow.Build(Registers));
+        RegisterView.Refresh();
     }
 
     private bool FilterRegister(object item)

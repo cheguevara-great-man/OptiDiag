@@ -297,7 +297,8 @@
             </TabItem>
 
             <TabItem Header="寄存器全景">
-                <DataGrid ItemsSource="{Binding RegisterMapRows}"
+                <DataGrid x:Name="RegisterMapGrid"
+                          ItemsSource="{Binding RegisterMapRows}"
                           Margin="2,10"
                           FontFamily="Cascadia Mono, Consolas"
                           FontSize="14"
@@ -312,32 +313,43 @@
                           CanUserSortColumns="False"
                           CanUserReorderColumns="False"
                           CanUserResizeRows="False"
-                          EnableRowVirtualization="True">
+                          EnableRowVirtualization="True"
+                          MouseDoubleClick="RegisterMapGrid_MouseDoubleClick"
+                          PreviewMouseRightButtonDown="RegisterMapGrid_PreviewMouseRightButtonDown">
+                    <DataGrid.ContextMenu>
+                        <ContextMenu Background="#17243A"
+                                     Foreground="{StaticResource TextBrush}"
+                                     BorderBrush="{StaticResource AccentDarkBrush}">
+                            <MenuItem Header="读取此寄存器" Click="RegisterMapReadMenuItem_Click" />
+                            <MenuItem Header="写入此寄存器…" Click="RegisterMapWriteMenuItem_Click" />
+                        </ContextMenu>
+                    </DataGrid.ContextMenu>
                     <DataGrid.Resources>
                         <Style TargetType="DataGridCell">
                             <Setter Property="Padding" Value="7,3" />
                             <Setter Property="TextBlock.TextAlignment" Value="Center" />
                             <Setter Property="BorderThickness" Value="0" />
+                            <Setter Property="ToolTip" Value="双击读写；右键可选择操作" />
                         </Style>
                     </DataGrid.Resources>
                     <DataGrid.Columns>
                         <DataGridTextColumn Header="区域 / 地址" Binding="{Binding Location}" Width="145" />
-                        <DataGridTextColumn Header="00" Binding="{Binding [0]}" Width="*" />
-                        <DataGridTextColumn Header="01" Binding="{Binding [1]}" Width="*" />
-                        <DataGridTextColumn Header="02" Binding="{Binding [2]}" Width="*" />
-                        <DataGridTextColumn Header="03" Binding="{Binding [3]}" Width="*" />
-                        <DataGridTextColumn Header="04" Binding="{Binding [4]}" Width="*" />
-                        <DataGridTextColumn Header="05" Binding="{Binding [5]}" Width="*" />
-                        <DataGridTextColumn Header="06" Binding="{Binding [6]}" Width="*" />
-                        <DataGridTextColumn Header="07" Binding="{Binding [7]}" Width="*" />
-                        <DataGridTextColumn Header="08" Binding="{Binding [8]}" Width="*" />
-                        <DataGridTextColumn Header="09" Binding="{Binding [9]}" Width="*" />
-                        <DataGridTextColumn Header="0A" Binding="{Binding [10]}" Width="*" />
-                        <DataGridTextColumn Header="0B" Binding="{Binding [11]}" Width="*" />
-                        <DataGridTextColumn Header="0C" Binding="{Binding [12]}" Width="*" />
-                        <DataGridTextColumn Header="0D" Binding="{Binding [13]}" Width="*" />
-                        <DataGridTextColumn Header="0E" Binding="{Binding [14]}" Width="*" />
-                        <DataGridTextColumn Header="0F" Binding="{Binding [15]}" Width="*" />
+                        <DataGridTextColumn Header="00" Binding="{Binding [0].HexValue}" Width="*" />
+                        <DataGridTextColumn Header="01" Binding="{Binding [1].HexValue}" Width="*" />
+                        <DataGridTextColumn Header="02" Binding="{Binding [2].HexValue}" Width="*" />
+                        <DataGridTextColumn Header="03" Binding="{Binding [3].HexValue}" Width="*" />
+                        <DataGridTextColumn Header="04" Binding="{Binding [4].HexValue}" Width="*" />
+                        <DataGridTextColumn Header="05" Binding="{Binding [5].HexValue}" Width="*" />
+                        <DataGridTextColumn Header="06" Binding="{Binding [6].HexValue}" Width="*" />
+                        <DataGridTextColumn Header="07" Binding="{Binding [7].HexValue}" Width="*" />
+                        <DataGridTextColumn Header="08" Binding="{Binding [8].HexValue}" Width="*" />
+                        <DataGridTextColumn Header="09" Binding="{Binding [9].HexValue}" Width="*" />
+                        <DataGridTextColumn Header="0A" Binding="{Binding [10].HexValue}" Width="*" />
+                        <DataGridTextColumn Header="0B" Binding="{Binding [11].HexValue}" Width="*" />
+                        <DataGridTextColumn Header="0C" Binding="{Binding [12].HexValue}" Width="*" />
+                        <DataGridTextColumn Header="0D" Binding="{Binding [13].HexValue}" Width="*" />
+                        <DataGridTextColumn Header="0E" Binding="{Binding [14].HexValue}" Width="*" />
+                        <DataGridTextColumn Header="0F" Binding="{Binding [15].HexValue}" Width="*" />
                     </DataGrid.Columns>
                 </DataGrid>
             </TabItem>

@@ -87,10 +87,13 @@ public sealed class CoreWorkflowTests
         await using var session = new ModuleSession(new Sff8472Simulator(), new Sff8472Protocol());
         await session.ConnectAsync(CancellationToken.None);
         await session.WriteByteAsync(0x51, null, 110, 0x40, CancellationToken.None);
-
         var snapshot = await session.RefreshAsync(CancellationToken.None);
 
-        Assert.Equal(0x40, snapshot.Dump.FindRegion("a2-lower")!.Data[110]);
+        var directlyRead = await session.ReadByteAsync(0x51, null, 110, CancellationToken.None);
+        var pagedRead = await session.ReadByteAsync(0x51, 0x02, 128, CancellationToken.None);
+
+        Assert.Equal(0x40, directlyRead);
+        Assert.Equal(snapshot.Dump.FindRegion("a2-page02")!.Data[0], pagedRead);
     }
 
     [Fact]
