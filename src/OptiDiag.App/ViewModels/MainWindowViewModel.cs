@@ -4,10 +4,12 @@ using System.Globalization;
 using System.IO;
 using System.Windows.Data;
 using OptiDiag.Application;
+using OptiDiag.App.Services;
 using OptiDiag.I2c.Abstractions;
 using OptiDiag.I2c.Simulator;
 using OptiDiag.Infrastructure;
 using OptiDiag.Protocols.Abstractions;
+using OptiDiag.Protocols.Cmis;
 
 namespace OptiDiag.App.ViewModels;
 
@@ -58,6 +60,11 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     private DataSourceOption _selectedDataSource;
     private bool _simulateSff8690;
     private bool _simulateRemotePerformanceMonitoring;
+    private CmisCdbCommandDefinition? _selectedCdbCommand;
+    private string _cdbLocalPayloadHex = "00 00";
+    private string _cdbExtendedPayloadHex = string.Empty;
+    private int _cdbInstance = 1;
+    private string _cdbResult = "请选择 CMIS 数据源并连接，然后可执行 CDB 命令。";
 
     public MainWindowViewModel(
         ModuleSession session,
@@ -94,6 +101,8 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
                 "协议自动检测已实现；需要具体 USB-I²C 设备型号后加载对应适配器。")
         ];
         _selectedDataSource = DataSources[0];
+        CmisCdbCommands = CmisCdbCommandCatalog.Commands;
+        _selectedCdbCommand = CmisCdbCommands[0];
         _logPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "OptiDiag",
@@ -127,6 +136,8 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     public ICollectionView RegisterView { get; }
 
     public IReadOnlyList<DataSourceOption> DataSources { get; }
+    public IReadOnlyList<CmisCdbCommandDefinition> CmisCdbCommands { get; }
+    public IReadOnlyList<int> CdbInstances { get; } = [1, 2];
 
     public ModuleInformation? Information
     {
@@ -257,6 +268,121 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         set => SetProperty(ref _selectedRegister, value);
     }
 
+    public CmisCdbCommandDefinition? SelectedCdbCommand
+    {
+        get => _selectedCdbCommand;
+        set
+        {
+            if (SetProperty(ref _selectedCdbCommand, value))
+            {
+                OnPropertyChanged(nameof(CdbParameterHelp));
+            }
+        }
+    }
+
+    public string CdbParameterHelp
+    {
+        get
+        {
+            if (SelectedCdbCommand is null)
+            {
+                return "--";
+            }
+
+            var rule = CmisCdbPayloadRules.Find(SelectedCdbCommand.Id);
+            return rule is null
+                ? "自定义/补充规范命令：使用原始 LPL/EPL。"
+                : $"请求：{rule.CommandPayload}；回复：{rule.ReplyPayload}";
+        }
+    }
+
+    public string CdbLocalPayloadHex
+    {
+        get => _cdbLocalPayloadHex;
+        set => SetProperty(ref _cdbLocalPayloadHex, value);
+    }
+
+    public string CdbExtendedPayloadHex
+    {
+        get => _cdbExtendedPayloadHex;
+        set => SetProperty(ref _cdbExtendedPayloadHex, value);
+    }
+
+    public int CdbInstance
+    {
+        get => _cdbInstance;
+        set => SetProperty(ref _cdbInstance, Math.Clamp(value, 1, 2));
+    }
+
+    public string CdbResult
+    {
+        get => _cdbResult;
+        private set => SetProperty(ref _cdbResult, value);
+    }
+
+    public bool IsCmisActive => _session.ActiveProtocol?.Id == "cmis";
+
+    public async Task ExecuteCdbAsync()
+    {
+        if (!_session.IsConnected || !IsCmisActive)
+        {
+            throw new InvalidOperationException("请先选择 CMIS 数据源、连接并完成一次读取。");
+        }
+
+        var definition = SelectedCdbCommand
+            ?? throw new InvalidOperationException("请选择一个 CDB 命令。");
+        var localPayload = ParseHexBytes(CdbLocalPayloadHex);
+        var extendedPayload = ParseHexBytes(CdbExtendedPayloadHex);
+        var command = new CmisCdbCommand(definition.Id, localPayload, extendedPayload);
+        var executor = new CmisCdbExecutor(new CmisCdbSessionMemoryAccess(_session));
+        var result = await executor.ExecuteAsync(command, (byte)(CdbInstance - 1)).ConfigureAwait(true);
+        var decoded = CmisCdbReplyDecoder.Decode(command, result.Reply);
+        CdbResult =
+            $"CMD 0x{definition.Id:X4} {definition.Title} | "
+            + $"状态 0x{result.Status:X2} ({(result.Success ? "成功" : "失败")}) | "
+            + $"耗时 {result.Elapsed.TotalMilliseconds:0.0} ms | "
+            + $"回复校验 {(result.Reply.CheckCodeValid ? "有效" : "无效")} | "
+            + $"LPL {FormatHex(result.Reply.LocalPayload)}"
+            + (result.Reply.ExtendedPayload.Length > 0
+                ? $" | EPL {result.Reply.ExtendedPayload.Length} bytes"
+                : string.Empty)
+            + (decoded.Count > 0
+                ? Environment.NewLine + string.Join(
+                    Environment.NewLine,
+                    decoded.Select(item => $"{item.Name}: {item.Value}"
+                        + (string.IsNullOrWhiteSpace(item.Description) ? string.Empty : $" ({item.Description})")))
+                : string.Empty);
+        AddLog("INFO", CdbResult);
+    }
+
+    public async Task DownloadFirmwareAsync(string path)
+    {
+        if (!_session.IsConnected || !IsCmisActive)
+        {
+            throw new InvalidOperationException("请先选择 CMIS 数据源、连接并完成一次读取。");
+        }
+
+        var image = await File.ReadAllBytesAsync(path).ConfigureAwait(true);
+        var executor = new CmisCdbExecutor(new CmisCdbSessionMemoryAccess(_session));
+        var updater = new CmisFirmwareUpdateService(executor, (byte)(CdbInstance - 1));
+        var progress = new Progress<CmisFirmwareProgress>(value =>
+        {
+            CdbResult =
+                $"固件下载：{value.CompletedBytes}/{value.TotalBytes} bytes "
+                + $"({value.Percentage:0.0}%)，已写 {value.BlocksWritten} 块，跳过 {value.BlocksSkipped} 块。";
+        });
+        var result = await updater.DownloadAsync(
+            image,
+            new CmisFirmwareDownloadOptions(UseExtendedPayload: true, BlockSize: 128),
+            progress).ConfigureAwait(true);
+        CdbResult =
+            $"固件传输和 Complete 命令已完成：{Path.GetFileName(path)}，{result.ImageSize} bytes，"
+            + $"{result.BlocksWritten} 块，耗时 {result.Elapsed.TotalSeconds:0.0} s。"
+            + Environment.NewLine
+            + "软件没有自动执行 Run Image 或 Commit Image；请验证模块状态后再单独执行对应 CDB 命令。";
+        AddLog("WARN", CdbResult.Replace(Environment.NewLine, " ", StringComparison.Ordinal));
+    }
+
     public int PollingIntervalSeconds
     {
         get => _pollingIntervalSeconds;
@@ -301,6 +427,9 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
         SelectedDataSource = option;
         ClearDecodedData();
+        CdbResult = option.Key == "simulator-cmis"
+            ? "已选择 CMIS 数据源；连接并完成自动检测后即可执行 CDB 命令。"
+            : "CDB 仅适用于自动检测为 CMIS 的数据源。";
         StatusMessage = option.IsAvailable
             ? option.Description
             : $"{option.Description} 当前不会误连到模拟器。";
@@ -497,7 +626,10 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
             throw new InvalidOperationException("请先开启写操作解锁。");
         }
 
-        if (register.Access is RegisterAccess.ReadOnly or RegisterAccess.Reserved)
+        if (register.Access is RegisterAccess.ReadOnly
+            or RegisterAccess.ReadOnlyClearOnRead
+            or RegisterAccess.Mixed
+            or RegisterAccess.Reserved)
         {
             throw new InvalidOperationException($"{register.Name} 是 {register.Access}，禁止写入。");
         }
@@ -556,6 +688,15 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         OnPropertyChanged(nameof(SnapshotTime));
         OnPropertyChanged(nameof(ActiveAlarmCount));
         OnPropertyChanged(nameof(ProtocolDetectionEvidence));
+        OnPropertyChanged(nameof(IsCmisActive));
+        if (IsCmisActive
+            && (CdbResult.StartsWith("已选择 CMIS", StringComparison.Ordinal)
+                || CdbResult.StartsWith("请选择 CMIS", StringComparison.Ordinal)
+                || CdbResult.StartsWith("CDB 仅适用于", StringComparison.Ordinal)))
+        {
+            CdbResult = "CMIS 数据源已就绪。可执行 CDB 命令；固件下载前请先查询模块能力和限制。";
+        }
+
         StatusMessage =
             $"自动检测：{snapshot.Detection.ProtocolName}"
             + (snapshot.Module.Protocol?.Extensions.Any(x => x.IsPresent) == true
@@ -590,6 +731,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         OnPropertyChanged(nameof(SnapshotTime));
         OnPropertyChanged(nameof(ActiveAlarmCount));
         OnPropertyChanged(nameof(ProtocolDetectionEvidence));
+        OnPropertyChanged(nameof(IsCmisActive));
     }
 
     private void UpdateRegisterValue(RegisterValue previous, RegisterValue updated)
@@ -723,6 +865,36 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
             target.Add(item);
         }
     }
+
+    private static byte[] ParseHexBytes(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return [];
+        }
+
+        var normalized = text
+            .Replace("0x", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace(",", " ", StringComparison.Ordinal)
+            .Replace("-", " ", StringComparison.Ordinal)
+            .Replace("\r", " ", StringComparison.Ordinal)
+            .Replace("\n", " ", StringComparison.Ordinal);
+        var tokens = normalized.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var result = new byte[tokens.Length];
+        for (var index = 0; index < tokens.Length; index++)
+        {
+            if (tokens[index].Length != 2
+                || !byte.TryParse(tokens[index], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out result[index]))
+            {
+                throw new FormatException($"“{tokens[index]}”不是有效的十六进制字节；请使用例如 00 01 A5 FF 的格式。");
+            }
+        }
+
+        return result;
+    }
+
+    private static string FormatHex(ReadOnlySpan<byte> data) =>
+        data.IsEmpty ? "（空）" : string.Join(' ', data.ToArray().Select(value => $"{value:X2}"));
 
     public async ValueTask DisposeAsync()
     {

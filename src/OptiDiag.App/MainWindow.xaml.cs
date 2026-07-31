@@ -141,6 +141,34 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void ExecuteCdbButton_Click(object sender, RoutedEventArgs e) =>
+        await ExecuteAsync(ViewModel.ExecuteCdbAsync);
+
+    private async void DownloadFirmwareButton_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "选择要下载到 CMIS 模块的固件镜像",
+            Filter = "固件镜像 (*.bin;*.img;*.fw)|*.bin;*.img;*.fw|所有文件 (*.*)|*.*"
+        };
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        var answer = MessageBox.Show(
+            this,
+            $"确认把 {System.IO.Path.GetFileName(dialog.FileName)} 传输到模块的非活动固件镜像区？\n\n"
+            + "软件会执行 Start、Write Block 和 Complete，但不会自动 Run 或 Commit。",
+            "确认 CMIS 固件下载",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+        if (answer == MessageBoxResult.Yes)
+        {
+            await ExecuteAsync(() => ViewModel.DownloadFirmwareAsync(dialog.FileName));
+        }
+    }
+
     private async void WriteRegisterButton_Click(object sender, RoutedEventArgs e)
     {
         var register = ViewModel.SelectedRegister;

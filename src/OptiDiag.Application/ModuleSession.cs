@@ -126,6 +126,40 @@ public sealed class ModuleSession : IAsyncDisposable
             bankSelectOffset: bankSelectOffset,
             cancellationToken: cancellationToken);
 
+    public Task<byte[]> ReadBytesAsync(
+        byte deviceAddress,
+        byte? page,
+        byte offset,
+        int length,
+        CancellationToken cancellationToken = default,
+        byte? bank = null,
+        byte? bankSelectOffset = null) =>
+        _memory.ReadBytesAsync(
+            deviceAddress,
+            page,
+            offset,
+            length,
+            bank: bank,
+            bankSelectOffset: bankSelectOffset,
+            cancellationToken: cancellationToken);
+
+    public Task WriteBytesAsync(
+        byte deviceAddress,
+        byte? page,
+        byte offset,
+        ReadOnlyMemory<byte> data,
+        CancellationToken cancellationToken = default,
+        byte? bank = null,
+        byte? bankSelectOffset = null) =>
+        _memory.WriteBytesAsync(
+            deviceAddress,
+            page,
+            offset,
+            data,
+            bank: bank,
+            bankSelectOffset: bankSelectOffset,
+            cancellationToken: cancellationToken);
+
     private void OnTransferCompleted(object? sender, I2cTraceEntry entry) => TransferCompleted?.Invoke(this, entry);
 
     public async ValueTask DisposeAsync()

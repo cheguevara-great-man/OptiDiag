@@ -298,6 +298,115 @@
                 </Grid>
             </TabItem>
 
+            <TabItem Header="CMIS CDB">
+                <Grid Margin="8,10">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel>
+                            <TextBlock Text="CMIS 5.3 Command Data Block" FontSize="18" FontWeight="SemiBold" />
+                            <TextBlock Margin="0,5,0,0"
+                                       Foreground="{StaticResource MutedTextBrush}"
+                                       TextWrapping="Wrap"
+                                       Text="这里列出 CMIS 5.3 基础规范明确定义的全部 CDB 命令。发送顺序、CMDID 触发、LPL/EPL 和校验由软件自动处理；具体命令参数仍按十六进制输入，避免软件猜测厂商或补充规范语义。" />
+                        </StackPanel>
+                    </Border>
+                    <Grid Grid.Row="1" Margin="4,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="420" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="90" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="命令" VerticalAlignment="Center" Margin="4" />
+                        <ComboBox Grid.Column="1"
+                                  ItemsSource="{Binding CmisCdbCommands}"
+                                  SelectedItem="{Binding SelectedCdbCommand}"
+                                  IsEnabled="{Binding IsCmisActive}">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock>
+                                        <Run Text="{Binding Id, StringFormat={}{0:X4}}" />
+                                        <Run Text="  " />
+                                        <Run Text="{Binding Title}" />
+                                        <Run Text="  ·  " />
+                                        <Run Text="{Binding Section}" Foreground="{StaticResource MutedTextBrush}" />
+                                    </TextBlock>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                        <TextBlock Grid.Column="2" Text="实例" VerticalAlignment="Center" Margin="14,4,4,4" />
+                        <ComboBox Grid.Column="3"
+                                  ItemsSource="{Binding CdbInstances}"
+                                  SelectedItem="{Binding CdbInstance}"
+                                  IsEnabled="{Binding IsCmisActive}" />
+                        <StackPanel Grid.Column="4" Margin="14,1" VerticalAlignment="Center">
+                            <TextBlock Foreground="{StaticResource MutedTextBrush}"
+                                       Text="{Binding SelectedCdbCommand.Group, StringFormat=命令组：{0}}" />
+                            <TextBlock Foreground="{StaticResource MutedTextBrush}"
+                                       TextWrapping="Wrap"
+                                       Text="{Binding CdbParameterHelp}" />
+                        </StackPanel>
+                    </Grid>
+                    <Grid Grid.Row="2" Margin="4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Margin="0,0,8,0">
+                            <TextBlock Text="LPL 参数（0–120 字节，HEX）" Foreground="{StaticResource MutedTextBrush}" />
+                            <TextBox Text="{Binding CdbLocalPayloadHex, UpdateSourceTrigger=PropertyChanged}"
+                                     FontFamily="Cascadia Mono, Consolas"
+                                     MinHeight="64"
+                                     AcceptsReturn="True"
+                                     TextWrapping="Wrap"
+                                     IsEnabled="{Binding IsCmisActive}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Margin="0,0,8,0">
+                            <TextBlock Text="EPL 参数（0–2048 字节，HEX，可留空）" Foreground="{StaticResource MutedTextBrush}" />
+                            <TextBox Text="{Binding CdbExtendedPayloadHex, UpdateSourceTrigger=PropertyChanged}"
+                                     FontFamily="Cascadia Mono, Consolas"
+                                     MinHeight="64"
+                                     AcceptsReturn="True"
+                                     TextWrapping="Wrap"
+                                     IsEnabled="{Binding IsCmisActive}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2"
+                                    VerticalAlignment="Bottom"
+                                    IsEnabled="{Binding IsCmisActive}">
+                            <Button Content="执行 CDB 命令"
+                                    Style="{StaticResource PrimaryButton}"
+                                    Click="ExecuteCdbButton_Click" />
+                            <Button Content="下载固件文件…"
+                                    Margin="6,6,6,2"
+                                    Click="DownloadFirmwareButton_Click" />
+                        </StackPanel>
+                    </Grid>
+                    <Border Grid.Row="3" Style="{StaticResource Card}" Margin="4,10,4,4">
+                        <StackPanel>
+                            <TextBlock Text="执行结果" FontSize="16" FontWeight="SemiBold" />
+                            <TextBox Margin="0,8,0,0"
+                                     Text="{Binding CdbResult, Mode=OneWay}"
+                                     FontFamily="Cascadia Mono, Consolas"
+                                     IsReadOnly="True"
+                                     TextWrapping="Wrap"
+                                     VerticalScrollBarVisibility="Auto"
+                                     MinHeight="120" />
+                            <TextBlock Margin="0,8,0,0"
+                                       Foreground="{StaticResource WarningBrush}"
+                                       TextWrapping="Wrap"
+                                       Text="固件下载、密码修改、安全证书等命令会改变模块状态；接入真实硬件后请先确认命令参数和厂商限制。模拟器当前安全实现 Query Status 和能力查询，其余命令返回通用成功回复以测试上位机流程。" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </TabItem>
+
             <TabItem Header="寄存器全景">
                 <DataGrid x:Name="RegisterMapGrid"
                           ItemsSource="{Binding RegisterMapRows}"
@@ -452,7 +561,7 @@
                         <TextBlock Text="OptiDiag" FontSize="30" FontWeight="SemiBold" />
                         <TextBlock Text="面向光模块固件调试的 Windows 上位机" FontSize="16" Foreground="{StaticResource MutedTextBrush}" Margin="0,4,0,22" />
                         <TextBlock TextWrapping="Wrap" LineHeight="24">
-                            当前构建内置相互独立的 SFF-8472 与 CMIS 5.3 模拟器。界面通过应用服务访问协议层，协议层只解析内存快照；I²C 抽象不依赖 WPF。后续增加真实适配器、SFF-8636 或公司自定义协议时，不需要重写现有界面和解码器。
+                            当前构建内置相互独立的 SFF-8472 与 CMIS 5.3 模拟器。CMIS 包含基础规范页面、VDM、CDB 和固件下载状态机；外部补充规范页面会明确标注并保留原始数据。界面通过应用服务访问协议层，I²C 抽象不依赖 WPF。后续增加真实适配器、SFF-8636 或公司自定义协议时，不需要重写现有解码器。
                         </TextBlock>
                         <TextBlock Text="地址说明" FontSize="18" FontWeight="SemiBold" Margin="0,24,0,6" />
                         <TextBlock TextWrapping="Wrap" LineHeight="23">规范名称 A0h/A2h 包含读写位；本软件事务日志中的 0x50/0x51 是对应的 7 位 I²C 地址。</TextBlock>

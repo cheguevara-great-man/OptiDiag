@@ -128,6 +128,58 @@ public sealed class ModuleMemoryService
         }
     }
 
+    public async Task<byte[]> ReadBytesAsync(
+        byte deviceAddress,
+        byte? page,
+        byte offset,
+        int length,
+        byte pageSelectOffset = 127,
+        byte? bank = null,
+        byte? bankSelectOffset = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (length < 0 || offset + length > 256)
+        {
+            throw new ArgumentOutOfRangeException(nameof(length), "Read must stay within the 256-byte address window.");
+        }
+
+        await _operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (page.HasValue)
+            {
+                await SelectPageCoreAsync(
+                    deviceAddress,
+                    page.Value,
+                    pageSelectOffset,
+                    bank,
+                    bankSelectOffset,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            var result = new byte[length];
+            var completed = 0;
+            var maximum = Math.Clamp(_adapter.Info.MaximumReadLength, 1, 128);
+            while (completed < length)
+            {
+                var count = Math.Min(maximum, length - completed);
+                var chunk = await _adapter.ReadRegistersAsync(
+                    deviceAddress,
+                    (byte)(offset + completed),
+                    count,
+                    cancellationToken).ConfigureAwait(false);
+                chunk.CopyTo(result, completed);
+                completed += count;
+            }
+
+            return result;
+        }
+        finally
+        {
+            _operationGate.Release();
+        }
+    }
+
     public async Task WriteByteAsync(
         byte deviceAddress,
         byte? page,
@@ -154,6 +206,54 @@ public sealed class ModuleMemoryService
 
             await _adapter.WriteRegistersAsync(deviceAddress, offset, new[] { value }, cancellationToken)
                 .ConfigureAwait(false);
+        }
+        finally
+        {
+            _operationGate.Release();
+        }
+    }
+
+    public async Task WriteBytesAsync(
+        byte deviceAddress,
+        byte? page,
+        byte offset,
+        ReadOnlyMemory<byte> data,
+        byte pageSelectOffset = 127,
+        byte? bank = null,
+        byte? bankSelectOffset = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (offset + data.Length > 256)
+        {
+            throw new ArgumentOutOfRangeException(nameof(data), "Write must stay within the 256-byte address window.");
+        }
+
+        await _operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (page.HasValue)
+            {
+                await SelectPageCoreAsync(
+                    deviceAddress,
+                    page.Value,
+                    pageSelectOffset,
+                    bank,
+                    bankSelectOffset,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            var completed = 0;
+            var maximum = Math.Clamp(_adapter.Info.MaximumWriteLength, 1, 128);
+            while (completed < data.Length)
+            {
+                var count = Math.Min(maximum, data.Length - completed);
+                await _adapter.WriteRegistersAsync(
+                    deviceAddress,
+                    (byte)(offset + completed),
+                    data.Slice(completed, count),
+                    cancellationToken).ConfigureAwait(false);
+                completed += count;
+            }
         }
         finally
         {

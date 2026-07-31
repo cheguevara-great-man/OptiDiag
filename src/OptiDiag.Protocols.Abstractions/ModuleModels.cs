@@ -3,8 +3,12 @@ namespace OptiDiag.Protocols.Abstractions;
 public enum RegisterAccess
 {
     ReadOnly,
+    ReadOnlyClearOnRead,
     ReadWrite,
+    ReadWriteSelfClearing,
     WriteOnly,
+    WriteOnlySelfClearing,
+    Mixed,
     Reserved,
     VendorSpecific
 }

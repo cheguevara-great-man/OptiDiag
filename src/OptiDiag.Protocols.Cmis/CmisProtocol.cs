@@ -6,10 +6,10 @@ namespace OptiDiag.Protocols.Cmis;
 
 public sealed class CmisProtocol : IOpticalModuleProtocol
 {
-    public const string LowerRegionId = "cmis-lower";
-    public const string Page00RegionId = "cmis-page00";
-    public const string Page01RegionId = "cmis-page01";
-    public const string Page02RegionId = "cmis-page02";
+    public const string LowerRegionId = CmisMemoryMap.LowerRegionId;
+    public const string Page00RegionId = CmisMemoryMap.Page00RegionId;
+    public const string Page01RegionId = CmisMemoryMap.Page01RegionId;
+    public const string Page02RegionId = CmisMemoryMap.Page02RegionId;
     public const string Page03RegionId = "cmis-page03";
 
     private static readonly HashSet<byte> CmisIdentifiers =
@@ -21,47 +21,12 @@ public sealed class CmisProtocol : IOpticalModuleProtocol
 
     public string Revision => "5.3";
 
-    public IReadOnlyList<MemoryCaptureRegion> CapturePlan { get; } = BuildCapturePlan();
+    public IReadOnlyList<MemoryCaptureRegion> CapturePlan { get; } = CmisMemoryMap.BuildCapturePlan();
 
     public bool ShouldCaptureRegion(
         MemoryCaptureRegion region,
         IReadOnlyList<MemoryRegionData> capturedRegions)
-    {
-        if (region.Id == LowerRegionId)
-        {
-            return true;
-        }
-
-        var lower = capturedRegions.FirstOrDefault(x => x.Id == LowerRegionId)?.Data;
-        if (lower is not { Length: >= 128 })
-        {
-            return false;
-        }
-
-        var isFlat = (lower[2] & 0x80) != 0;
-        if (region.Id == Page00RegionId)
-        {
-            return isFlat != region.Page.HasValue;
-        }
-
-        if (isFlat)
-        {
-            return false;
-        }
-
-        var page01 = capturedRegions.FirstOrDefault(x => x.Id == Page01RegionId)?.Data;
-        if (region.Id == Page03RegionId)
-        {
-            return page01 is { Length: 128 } && (page01[14] & 0x04) != 0;
-        }
-
-        if (region.Bank is { } bank && bank > 0)
-        {
-            return page01 is { Length: 128 } && bank < DecodeBankCount(page01[14]);
-        }
-
-        return true;
-    }
+        => CmisMemoryMap.ShouldCapture(region, capturedRegions);
 
     public bool CanDecode(ModuleDump dump)
     {
@@ -75,7 +40,7 @@ public sealed class CmisProtocol : IOpticalModuleProtocol
         var page00 = RequireRegion(dump, Page00RegionId, 128);
         var page01 = dump.FindRegion(Page01RegionId)?.Data;
         var page02 = dump.FindRegion(Page02RegionId)?.Data;
-        var diagnostics = DecodeDiagnostics(lower, page00, page01, page02);
+        var diagnostics = DecodeDiagnostics(dump, lower, page00, page01, page02);
         var information = DecodeInformation(lower, page00, page01);
         var thresholds = DecodeThresholds(page01, page02);
         var measurements = DecodeMeasurements(dump, lower, page01, thresholds);
@@ -100,60 +65,6 @@ public sealed class CmisProtocol : IOpticalModuleProtocol
                 $"Identifier=0x{lower[0]:X2}，CMISRevision=0x{lower[1]:X2}（{revision}）。",
                 []),
             fields);
-    }
-
-    private static IReadOnlyList<MemoryCaptureRegion> BuildCapturePlan()
-    {
-        var result = new List<MemoryCaptureRegion>
-        {
-            new(LowerRegionId, "CMIS Lower Memory", 0x50, 0, 128, Volatile: true),
-            Page(Page00RegionId, "CMIS Upper Page 00h (paged)", 0x00),
-            // Flat-memory modules do not implement Bank/Page Select.
-            new(Page00RegionId, "CMIS Upper Page 00h (flat)", 0x50, 128, 128),
-            Page(Page01RegionId, "CMIS Page 01h Capabilities", 0x01),
-            Page(Page02RegionId, "CMIS Page 02h Thresholds", 0x02),
-            Page(Page03RegionId, "CMIS Page 03h User EEPROM", 0x03, optional: true)
-        };
-
-        for (byte bank = 0; bank < 4; bank++)
-        {
-            result.Add(Page(
-                $"cmis-b{bank}-page10",
-                $"CMIS Bank {bank} Page 10h Controls",
-                0x10,
-                bank,
-                optional: bank > 0,
-                isVolatile: true));
-            result.Add(Page(
-                $"cmis-b{bank}-page11",
-                $"CMIS Bank {bank} Page 11h Lane Status",
-                0x11,
-                bank,
-                optional: bank > 0,
-                isVolatile: true));
-        }
-
-        return result;
-
-        static MemoryCaptureRegion Page(
-            string id,
-            string name,
-            byte page,
-            byte bank = 0,
-            bool optional = false,
-            bool isVolatile = false) =>
-            new(
-                id,
-                name,
-                0x50,
-                128,
-                128,
-                page,
-                bank,
-                PageSelectOffset: 127,
-                BankSelectOffset: 126,
-                Optional: optional,
-                Volatile: isVolatile);
     }
 
     private static ModuleInformation DecodeInformation(byte[] lower, byte[] page00, byte[]? page01)
@@ -419,7 +330,7 @@ public sealed class CmisProtocol : IOpticalModuleProtocol
             for (var index = 0; index < region.Data.Length; index++)
             {
                 var offset = region.Offset + index;
-                var (name, description, access) = DescribeRegister(region.Id, offset);
+                var (name, description, access) = CmisRegisterMap.Describe(region, offset);
                 result.Add(new RegisterValue(
                     region.Id,
                     region.DeviceAddress,
@@ -550,83 +461,22 @@ public sealed class CmisProtocol : IOpticalModuleProtocol
         byte[] page00,
         byte[]? page01)
     {
-        var result = new List<DecodedField>
-        {
-            Field("协议", "Identifier", CmisCodeTables.Identifier(lower[0]), "Lower.0"),
-            Field("协议", "CMISRevision", FormatRevision(lower[1]), "Lower.1", "高四位=主版本，低四位=次版本"),
-            Field("内存模型", "MemoryModel", (lower[2] & 0x80) == 0 ? "分页" : "平面", "Lower.2.7"),
-            Field("状态", "ModuleState", CmisCodeTables.ModuleState((byte)((lower[3] >> 1) & 7)), "Lower.3.3-1"),
-            Field("状态", "InterruptDeasserted", Bool(lower[3], 0), "Lower.3.0"),
-            Field("监控", "Temperature", $"{(short)ReadUInt16(lower, 14) / 256d:0.###} °C", "Lower.14-15"),
-            Field("监控", "Vcc", $"{ReadUInt16(lower, 16) * 0.0001:0.####} V", "Lower.16-17"),
-            Field("控制", "GlobalControl", $"0x{lower[26]:X2}", "Lower.26", "含低功耗请求和软件复位", true),
-            Field("身份", "VendorName", ReadAscii(page00, 1, 16), "P00h.129-144"),
-            Field("身份", "VendorOUI", $"{page00[17]:X2}-{page00[18]:X2}-{page00[19]:X2}", "P00h.145-147"),
-            Field("身份", "VendorPN", ReadAscii(page00, 20, 16), "P00h.148-163"),
-            Field("身份", "VendorRev", ReadAscii(page00, 36, 2), "P00h.164-165"),
-            Field("身份", "VendorSN", ReadAscii(page00, 38, 16), "P00h.166-181"),
-            Field("身份", "DateCode", ReadAscii(page00, 54, 8), "P00h.182-189"),
-            Field("身份", "CLEI", ReadAscii(page00, 62, 10), "P00h.190-199"),
-            Field("能力", "MaximumPower", $"{page00[73] * 0.25:0.##} W", "P00h.201"),
-            Field("媒体", "Connector", CmisCodeTables.Connector(page00[75]), "P00h.203"),
-            Field("媒体", "MediaType", CmisCodeTables.MediaType(page00[85]), "Lower.85"),
-            Field("媒体", "MediaInterfaceTechnology", CmisCodeTables.MediaTechnology(page00[84]), "P00h.212")
-        };
-
-        for (var index = 0; index < 8; index++)
-        {
-            var offset = 86 + index * 4;
-            if (lower[offset] == 0xFF)
-            {
-                break;
-            }
-
-            result.Add(Field(
-                "应用描述符",
-                $"Application {index + 1}",
-                $"Host=0x{lower[offset]:X2}, Media=0x{lower[offset + 1]:X2}, "
-                + $"Host lanes={lower[offset + 2] >> 4}, Media lanes={lower[offset + 2] & 0x0F}",
-                $"Lower.{offset}-{offset + 3}",
-                $"Host lane assignment=0x{lower[offset + 3]:X2}"));
-        }
-
-        if (page01 is { Length: 128 })
-        {
-            result.Add(Field("能力", "SupportedPages", $"0x{page01[14]:X2}", "P01h.142"));
-            result.Add(Field("能力", "SupportedBanks", DecodeBankCount(page01[14]).ToString(), "P01h.142.1-0"));
-            result.Add(Field("能力", "SupportedMonitors", $"0x{page01[31]:X2}", "P01h.159"));
-            result.Add(Field("能力", "LaneMonitors", $"0x{page01[32]:X2}", "P01h.160"));
-            result.Add(Field(
-                "媒体",
-                "NominalWavelength",
-                $"{ReadUInt16(page01, 10) * 0.05:0.###} nm",
-                "P01h.138-139"));
-            result.Add(Field(
-                "媒体",
-                "WavelengthTolerance",
-                $"{ReadUInt16(page01, 12) * 0.005:0.###} nm",
-                "P01h.140-141"));
-        }
-
-        foreach (var region in dump.Regions.Where(x => x.Id.EndsWith("-page11", StringComparison.Ordinal)))
-        {
-            var bank = region.Bank ?? 0;
-            result.Add(Field(
-                "通道状态",
-                $"Bank {bank} OutputStatusRx",
-                $"0x{region.Data[4]:X2}",
-                $"B{bank:X2}/P11h.132"));
-            result.Add(Field(
-                "通道状态",
-                $"Bank {bank} OutputStatusTx",
-                $"0x{region.Data[5]:X2}",
-                $"B{bank:X2}/P11h.133"));
-        }
-
+        var result = new List<DecodedField>();
+        CmisStaticDecoder.Decode(
+            dump,
+            lower,
+            page00,
+            page01,
+            dump.FindRegion(Page02RegionId)?.Data,
+            result);
+        CmisPagedDecoder.Decode(dump, result);
+        CmisVdmDecoder.Decode(dump, result);
+        CmisCdbDecoder.Decode(dump, result);
         return result;
     }
 
     private static List<DecodeDiagnostic> DecodeDiagnostics(
+        ModuleDump dump,
         byte[] lower,
         byte[] page00,
         byte[]? page01,
@@ -657,6 +507,12 @@ public sealed class CmisProtocol : IOpticalModuleProtocol
         if (page02 is not null)
         {
             ValidateChecksum(page02, 0, 126, 127, "Page 02h", Page02RegionId, result);
+        }
+
+        var page04 = dump.Regions.FirstOrDefault(region => region.Page == 0x04)?.Data;
+        if (page04 is not null)
+        {
+            ValidateChecksum(page04, 0, 126, 127, "Page 04h", CmisMemoryMap.RegionId(0x04), result);
         }
 
         result.Add(new DecodeDiagnostic(
@@ -709,13 +565,8 @@ public sealed class CmisProtocol : IOpticalModuleProtocol
 
     private static string FormatRevision(byte raw) => $"{raw >> 4}.{raw & 0x0F}";
 
-    private static int DecodeBankCount(byte supportedPages) => (supportedPages & 0x03) switch
-    {
-        0 => 1,
-        1 => 2,
-        2 => 4,
-        _ => 1
-    };
+    private static int DecodeBankCount(byte supportedPages) =>
+        CmisMemoryMap.DecodeLaneBankCount(supportedPages);
 
     private static int DecodeBiasMultiplier(byte[]? page01) =>
         page01 is not { Length: 128 }
