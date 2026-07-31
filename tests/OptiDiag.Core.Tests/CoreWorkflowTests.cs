@@ -92,4 +92,22 @@ public sealed class CoreWorkflowTests
 
         Assert.Equal(0x40, snapshot.Dump.FindRegion("a2-lower")!.Data[110]);
     }
+
+    [Fact]
+    public async Task ProtocolDetection_DistinguishesPlain8472AndSff8690Extension()
+    {
+        await using var adapter = new Sff8472Simulator();
+        var detector = new ProtocolDetectionService();
+        await adapter.OpenAsync(CancellationToken.None);
+
+        var plain = await detector.DetectAsync(adapter, CancellationToken.None);
+        adapter.SetSff8690Enabled(true);
+        var tunable = await detector.DetectAsync(adapter, CancellationToken.None);
+
+        Assert.Equal("sff-8472", plain.ProtocolId);
+        Assert.False(Assert.Single(plain.Extensions).IsPresent);
+        Assert.Equal("sff-8472", tunable.ProtocolId);
+        Assert.True(Assert.Single(tunable.Extensions).IsPresent);
+        Assert.Contains("A0h.65.6=1", tunable.Extensions[0].Evidence);
+    }
 }

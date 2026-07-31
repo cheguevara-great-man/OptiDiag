@@ -108,6 +108,39 @@ public sealed record AlarmFlag(
 
 public sealed record StatusItem(string Name, string Value, string SourceRegister, string Description = "");
 
+public sealed record ProtocolExtensionInfo(
+    string Id,
+    string DisplayName,
+    string Revision,
+    bool IsPresent,
+    string Evidence);
+
+public sealed record ProtocolIdentification(
+    string BaseProtocolId,
+    string BaseProtocolName,
+    string Revision,
+    string DetectionEvidence,
+    IReadOnlyList<ProtocolExtensionInfo> Extensions)
+{
+    public string ExtensionSummary
+    {
+        get
+        {
+            var present = Extensions.Where(x => x.IsPresent).Select(x => x.DisplayName).ToArray();
+            return present.Length == 0 ? "无扩展协议" : string.Join("、", present);
+        }
+    }
+}
+
+public sealed record DecodedField(
+    string Category,
+    string Name,
+    string Value,
+    string SourceRegister,
+    string Description = "",
+    string Unit = "",
+    bool IsWritable = false);
+
 public sealed record RegisterValue(
     string RegionId,
     byte DeviceAddress,
@@ -137,7 +170,10 @@ public sealed record DecodedModule(
     IReadOnlyList<AlarmFlag> Alarms,
     IReadOnlyList<StatusItem> Status,
     IReadOnlyList<RegisterValue> Registers,
-    IReadOnlyList<DecodeDiagnostic> Diagnostics);
+    IReadOnlyList<DecodeDiagnostic> Diagnostics,
+    ProtocolIdentification? Protocol = null,
+    IReadOnlyList<DecodedField>? Fields = null,
+    DecodedModule? RemoteModule = null);
 
 public interface IOpticalModuleProtocol
 {

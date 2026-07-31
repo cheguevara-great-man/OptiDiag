@@ -15,25 +15,58 @@ public sealed class Sff8472Simulator : II2cAdapter
     private byte _selectedPage;
     private bool _disposed;
 
-    public Sff8472Simulator(bool enableRemotePerformanceMonitoring = false)
+    public Sff8472Simulator(
+        bool enableRemotePerformanceMonitoring = false,
+        bool enableSff8690 = false)
     {
         (_a0, _a2Lower, _a2Pages) = SimulatorMemoryFactory.CreateSff8472Sample();
-        if (enableRemotePerformanceMonitoring)
-        {
-            EnableRemotePerformanceMonitoring();
-        }
+        SetRemotePerformanceMonitoringEnabledCore(enableRemotePerformanceMonitoring);
+        SetSff8690EnabledCore(enableSff8690);
     }
 
-    public I2cAdapterInfo Info { get; } = new(
+    public I2cAdapterInfo Info => new(
         "sim-sff8472-01",
-        "SFF-8472 标准示例模块",
+        $"{(Sff8690Enabled ? "SFF-8472 + SFF-8690 可调谐" : "SFF-8472 标准")}模拟模块"
+        + (RemotePerformanceMonitoringEnabled ? "（含 RPM 远端）" : string.Empty),
         "OptiDiag Simulator",
         MaximumReadLength: 128,
         MaximumWriteLength: 128);
 
+    public bool Sff8690Enabled { get; private set; }
+
+    public bool RemotePerformanceMonitoringEnabled { get; private set; }
+
     public bool IsOpen { get; private set; }
 
     public event EventHandler<I2cTraceEntry>? TransferCompleted;
+
+    public void SetSff8690Enabled(bool enabled)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        _gate.Wait();
+        try
+        {
+            SetSff8690EnabledCore(enabled);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public void SetRemotePerformanceMonitoringEnabled(bool enabled)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        _gate.Wait();
+        try
+        {
+            SetRemotePerformanceMonitoringEnabledCore(enabled);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
 
     public Task OpenAsync(CancellationToken cancellationToken = default)
     {
@@ -183,8 +216,15 @@ public sealed class Sff8472Simulator : II2cAdapter
         return page;
     }
 
-    private void EnableRemotePerformanceMonitoring()
+    private void SetRemotePerformanceMonitoringEnabledCore(bool enabled)
     {
+        RemotePerformanceMonitoringEnabled = enabled;
+        if (!enabled)
+        {
+            _a2Pages[0x02][1] &= 0xFB;
+            return;
+        }
+
         _a2Pages[0x02][1] |= 0x04; // Page 02h byte 129 bit 2: RPM supported.
         _a2Pages[0x20] = _a0[..128].ToArray();
         _a2Pages[0x21] = _a0[128..].ToArray();
@@ -194,6 +234,37 @@ public sealed class Sff8472Simulator : II2cAdapter
         _a2Pages[0x25] = new byte[128];
         _a2Pages[0x26] = new byte[128];
         _a2Pages[0x27] = new byte[128];
+    }
+
+    private void SetSff8690EnabledCore(bool enabled)
+    {
+        Sff8690Enabled = enabled;
+        var page = _a2Pages[0x02];
+        page[0] = 0;
+        page.AsSpan(4, 42).Clear(); // Absolute bytes 132-173, all SFF-8690 fields.
+        if (enabled)
+        {
+            _a0[65] |= 0x40;
+            page[0] = 0b0000_1111; // Self tuning, dither, channel and wavelength selection.
+            SimulatorMemoryFactory.WriteUnsigned(page, 4, 191);    // First frequency: 191.3000 THz.
+            SimulatorMemoryFactory.WriteUnsigned(page, 6, 3000);
+            SimulatorMemoryFactory.WriteUnsigned(page, 8, 196);    // Last frequency: 196.1000 THz.
+            SimulatorMemoryFactory.WriteUnsigned(page, 10, 1000);
+            SimulatorMemoryFactory.WriteSigned(page, 12, 500);     // Grid: 50.0 GHz.
+            SimulatorMemoryFactory.WriteUnsigned(page, 16, 45);    // Current channel.
+            SimulatorMemoryFactory.WriteUnsigned(page, 18, 31002); // 1550.10 nm / 0.05 nm.
+            page[23] = 0b0000_0010;          // Self tuning enabled; dither enabled (active low).
+            SimulatorMemoryFactory.WriteSigned(page, 24, -2);       // -0.2 GHz.
+            SimulatorMemoryFactory.WriteSigned(page, 26, 2);        // +0.010 nm.
+            page[40] = 0x00;                 // Self tuning idle/locked.
+            page[44] = 0x08;                 // New channel latched.
+        }
+        else
+        {
+            _a0[65] &= 0xBF;
+        }
+
+        _a0[95] = SimulatorMemoryFactory.ComputeChecksum(_a0.AsSpan(64, 31));
     }
 
     private void UpdateDynamicDiagnostics()
@@ -282,10 +353,24 @@ public static class SimulatorMemoryFactory
         page3[0] = 0xCA; // CA1Bh: optical-module timing calibration format
         page3[1] = 0x1B;
         page3[2] = 0x01;
-        page3[3] = 26;
-        page3[4] = 7;
-        page3[5] = 30;
-        WriteAscii(page3, 6, 6, "OD0001");
+        page3[3] = 26;   // Year = 2026.
+        page3[4] = 0x7E; // July; upper four bits of (day - 1).
+        page3[5] = 0x81; // Day-code LSB=1 (30th); calibration sequence 1.
+        page3[6] = 0x00;
+        page3[7] = 0x1B;
+        page3[8] = 0x21;
+        page3[9] = 0x00;
+        page3[10] = 0x00;
+        page3[11] = 0x01;
+        page3[12] = 0;   // Highest precision stratum.
+        page3[22] = 1;   // Nb_Lanes.
+        page3[23] = 0;   // Single operational mode.
+        WriteSigned24(page3, 24, 32768); // Rx_Pwr_Dly(0) = 0.5 ns.
+        WriteSigned24(page3, 27, 655);   // Rx_Pwr_Dly(1) ~= 0.01 ns/dBm.
+        WriteQ16_16(page3, 43, 0.50);    // Delta_Rx_Max.
+        WriteQ16_16(page3, 47, 0.40);    // Delta_Tx_Max.
+        WriteQ16_16(page3, 51, 25.25);   // Avg_Rx_Lane1.
+        WriteQ16_16(page3, 55, 21.75);   // Avg_Tx_Lane1.
         page3[127] = ComputeChecksum(page3.AsSpan(0, 127));
 
         return (a0, a2, new Dictionary<byte, byte[]>
@@ -318,13 +403,25 @@ public static class SimulatorMemoryFactory
     internal static void WriteSigned(byte[] target, int offset, short value) =>
         BinaryPrimitives.WriteInt16BigEndian(target.AsSpan(offset, 2), value);
 
+    private static void WriteSigned24(byte[] target, int offset, int value)
+    {
+        target[offset] = (byte)(value >> 16);
+        target[offset + 1] = (byte)(value >> 8);
+        target[offset + 2] = (byte)value;
+    }
+
+    private static void WriteQ16_16(byte[] target, int offset, double value) =>
+        BinaryPrimitives.WriteUInt32BigEndian(
+            target.AsSpan(offset, 4),
+            checked((uint)Math.Round(value * 65536)));
+
     private static void WriteAscii(byte[] target, int offset, int length, string value)
     {
         target.AsSpan(offset, length).Fill(0x20);
         Encoding.ASCII.GetBytes(value.AsSpan(0, Math.Min(value.Length, length)), target.AsSpan(offset, length));
     }
 
-    private static byte ComputeChecksum(ReadOnlySpan<byte> data)
+    internal static byte ComputeChecksum(ReadOnlySpan<byte> data)
     {
         var sum = 0;
         foreach (var value in data)
