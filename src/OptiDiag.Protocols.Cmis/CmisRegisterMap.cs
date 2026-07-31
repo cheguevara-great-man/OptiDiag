@@ -3,7 +3,7 @@ using OptiDiag.Protocols.Abstractions;
 namespace OptiDiag.Protocols.Cmis;
 
 /// <summary>
-/// Byte-level access metadata for the CMIS 5.3 memory map.
+/// Byte-level access metadata for the CMIS 5.3/5.4 memory map.
 /// This table is also used by the register panorama to prevent writes to
 /// read-only, clear-on-read and reserved registers.
 /// </summary>
@@ -11,7 +11,8 @@ public static class CmisRegisterMap
 {
     public static (string Name, string Description, RegisterAccess Access) Describe(
         MemoryRegionData region,
-        int offset)
+        int offset,
+        CmisRevision revision = default)
     {
         if (region.Id == CmisMemoryMap.LowerRegionId)
         {
@@ -32,9 +33,11 @@ public static class CmisRegisterMap
             0x04 => Ro("Laser Capabilities", "Tunable laser capability advertising"),
             0x05 or 0x06 or 0x07 or >= 0x08 and <= 0x0B =>
                 Mixed("External Supplement", "Semantics are defined by an external CMIS supplement; raw writes are blocked."),
+            0x0C => DescribePage0C(offset),
+            0x0D => DescribePage0D(offset),
             0x10 => DescribePage10(offset),
             0x11 => DescribePage11(offset),
-            0x12 => DescribePage12(offset),
+            0x12 => DescribePage12(offset, revision),
             0x13 => DescribePage13(offset),
             0x14 => DescribePage14(offset),
             0x15 => offset >= 224 ? Ro("Timing Characteristics", "Per-lane latency results") : Reserved(),
@@ -59,7 +62,14 @@ public static class CmisRegisterMap
             0x2F => DescribePage2F(offset),
             >= 0x30 and <= 0x5F =>
                 Mixed("External Supplement Page", "C-CMIS or CMIS-LT semantics require the corresponding supplement."),
-            >= 0x60 and <= 0x9E => Reserved(),
+            0x60 => DescribePage60(offset),
+            0x61 => offset is >= 128 and <= 191
+                ? Ro("Acquisition Counters", "CMIS 5.4 lane and data-path acquisition counters") : Reserved(),
+            0x62 => offset is >= 128 and <= 191
+                ? Ro("Lane Power Thresholds", "CMIS 5.4 absolute per-lane Tx output-power thresholds") : Reserved(),
+            >= 0x63 and <= 0x6C => Reserved(),
+            0x6D => DescribeLaneSwitching(offset, "Media"),
+            >= 0x6E and <= 0x9E => Reserved(),
             0x9F => DescribePage9F(offset),
             >= 0xA0 and <= 0xAF =>
                 Mixed("CDB Extended Payload", "Direction and layout depend on the active CDB command."),
@@ -120,12 +130,15 @@ public static class CmisRegisterMap
         _ => Reserved()
     };
 
-    private static (string, string, RegisterAccess) DescribePage12(int offset) => offset switch
+    private static (string, string, RegisterAccess) DescribePage12(int offset, CmisRevision revision) => offset switch
     {
         >= 128 and <= 167 => Rw("Tunable Laser Control", "Grid, channel, fine-tuning and target-power controls"),
         >= 168 and <= 199 => Ro("Tunable Laser Status", "Current grid, frequency and output power"),
         >= 200 and <= 215 => Rw("Tunable Laser Masks", "Per-lane tunable-laser flag masks"),
-        >= 216 and <= 230 => Ro("Tunable Laser Status", "Per-lane status"),
+        >= 216 and <= 217 when revision.IsAtLeast54 =>
+            Rw("Relative Tx Power Thresholds", "CMIS 5.4 programmable offsets against nominal Tx power"),
+        >= 216 and <= 221 => Reserved(),
+        >= 222 and <= 230 => Ro("Tunable Laser Status", "Per-lane status"),
         >= 231 and <= 238 => ("Tunable Laser Flags", "Latched tunable-laser flags; read may clear.", RegisterAccess.ReadOnlyClearOnRead),
         >= 239 and <= 246 => Rw("Tunable Laser Masks", "Latched flag masks"),
         _ => Reserved()
@@ -174,18 +187,43 @@ public static class CmisRegisterMap
         _ => Reserved()
     };
 
-    private static (string, string, RegisterAccess) DescribePage1D(int offset) => offset switch
+    private static (string, string, RegisterAccess) DescribePage1D(int offset) =>
+        DescribeLaneSwitching(offset, "Host");
+
+    private static (string, string, RegisterAccess) DescribeLaneSwitching(int offset, string side) => offset switch
     {
-        >= 128 and <= 135 => Ro("Host Lane Switching Advertising", "Maximum commit duration and reserved advertising"),
-        >= 136 and <= 143 => Rw("Lane Redirection", "Proposed host-lane permutation"),
+        >= 128 and <= 135 => Ro($"{side} Lane Switching Advertising", "Maximum commit duration and reserved advertising"),
+        >= 136 and <= 143 => Rw("Lane Redirection", $"Proposed {side.ToLowerInvariant()}-lane permutation"),
         >= 144 and <= 151 => Reserved(),
         152 => Rw("Enable Lane Redirection", "Enables host-lane switching"),
         >= 153 and <= 159 => Reserved(),
         160 => ("Commit Redirection", "Write-one self-clearing lane-redirection commit.", RegisterAccess.WriteOnlySelfClearing),
         >= 161 and <= 167 => Reserved(),
-        168 => Ro("Redirection Commit Result", "Result of the last commit command"),
-        >= 169 and <= 183 => Reserved(),
+        >= 168 and <= 175 => Ro("Redirection Commit Result", "Per-lane result of the last commit command"),
+        >= 176 and <= 183 => Reserved(),
         >= 184 and <= 191 => Ro("Lane Redirection Status", "Active host-lane permutation"),
+        _ => Reserved()
+    };
+
+    private static (string, string, RegisterAccess) DescribePage0C(int offset) => offset switch
+    {
+        >= 128 and <= 223 => Ro("Module Management Advertising", "CMIS 5.4 supported-page map and named-feature details"),
+        _ => Reserved()
+    };
+
+    private static (string, string, RegisterAccess) DescribePage0D(int offset) => offset switch
+    {
+        128 => Ro("Firmware Management Capabilities", "CMIS 5.4 consolidated load-management capabilities"),
+        >= 132 and <= 135 => Rw("Firmware Management Controls", "CMIS 5.4 consolidated load-management controls"),
+        136 => Ro("Firmware Loads Status", "Running, committed and invalid state for firmware banks"),
+        >= 148 and <= 255 => Ro("Firmware Version Descriptor", "Version descriptor for A, B or fixed load"),
+        _ => Reserved()
+    };
+
+    private static (string, string, RegisterAccess) DescribePage60(int offset) => offset switch
+    {
+        >= 128 and <= 130 => Ro("Lane/DP Management Advertising", "CMIS 5.4 fixed polarity and counter-reset support"),
+        >= 192 and <= 195 => ("Reset Acquisition Counters", "Write-one self-clearing reset bitmap.", RegisterAccess.WriteOnlySelfClearing),
         _ => Reserved()
     };
 

@@ -25,7 +25,8 @@ public sealed record CmisFirmwareDownloadResult(
     TimeSpan Elapsed);
 
 /// <summary>
-/// CMIS 5.3 section 9.7 firmware download state machine.
+/// CMIS 5.3/5.4 firmware download state machine, including the consolidated
+/// 5.4 activation-options and firmware-load-tag commands.
 /// Running or committing the new image are explicit separate calls so that a
 /// successful transfer never resets traffic without a deliberate host action.
 /// </summary>
@@ -181,6 +182,59 @@ public sealed class CmisFirmwareUpdateService
         CancellationToken cancellationToken = default) =>
         _executor.ExecuteAsync(
             new CmisCdbCommand(0x010A),
+            _instance,
+            cancellationToken: cancellationToken);
+
+    public Task<CmisCdbExecutionResult> CheckActivationOptionsAsync(
+        CancellationToken cancellationToken = default) =>
+        _executor.ExecuteAsync(
+            new CmisCdbCommand(0x010B),
+            _instance,
+            cancellationToken: cancellationToken);
+
+    public Task<CmisCdbExecutionResult> StoreLoadTagAsync(
+        byte firmwareBank,
+        string tag,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(tag);
+        if (tag.Any(character => character > 0x7F))
+        {
+            throw new ArgumentException("Firmware load tag must contain ASCII characters only.", nameof(tag));
+        }
+        var encoded = System.Text.Encoding.ASCII.GetBytes(tag);
+        if (encoded.Length > 64)
+        {
+            throw new ArgumentOutOfRangeException(nameof(tag), "Firmware load tag cannot exceed 64 ASCII bytes.");
+        }
+
+        var payload = new byte[66];
+        payload[0] = firmwareBank;
+        encoded.CopyTo(payload, 2);
+        return _executor.ExecuteAsync(
+            new CmisCdbCommand(0x010C, payload),
+            _instance,
+            cancellationToken: cancellationToken);
+    }
+
+    public Task<CmisCdbExecutionResult> ClearLoadTagAsync(
+        byte firmwareBank,
+        CancellationToken cancellationToken = default)
+    {
+        var payload = new byte[66];
+        payload[0] = firmwareBank;
+        payload[1] = 1;
+        return _executor.ExecuteAsync(
+            new CmisCdbCommand(0x010C, payload),
+            _instance,
+            cancellationToken: cancellationToken);
+    }
+
+    public Task<CmisCdbExecutionResult> RetrieveLoadTagAsync(
+        byte firmwareBank,
+        CancellationToken cancellationToken = default) =>
+        _executor.ExecuteAsync(
+            new CmisCdbCommand(0x010D, [firmwareBank]),
             _instance,
             cancellationToken: cancellationToken);
 

@@ -1,10 +1,12 @@
-# CMIS 5.3 协议与实现导读
+# CMIS 5.3 / 5.4 协议与实现导读
 
 ## 1. CMIS 与 SFF-8472 的关系
 
 CMIS（Common Management Interface Specification）面向 QSFP-DD、OSFP、SFP-DD 等多通道模块。它和 SFF-8472 是并行的两套管理协议，不是把 SFF-8472 页面继续向后加。软件先读取 `0x50` 的 Lower Memory，通过 Identifier、版本和内存模型判断协议，再选择独立的采集计划和解码器。
 
-本项目的基线是 OIF-CMIS-05.3（2024 年 9 月）及 SFF-8024 Rev 4.14。CMIS 4.x/5.x 模块也可被识别，但界面会显示模块实际声明的版本；字段解释以 5.3 为准。
+本项目同时保留 OIF-CMIS-05.3（2024 年 9 月）和正式版 OIF-CMIS-05.4（2026 年 5 月）路径，并使用 SFF-8024 Rev 4.14 公共码表。界面、Dump 和 CDB 命令表都按模块实际声明的 Revision 切换。
+
+OIF 5.4 Revision History 明确说明：5.3 合规的主机和模块原则上也符合 5.4；例外是未按 CMIS 5.x Errata 修正的旧 Network Path 实现。代码因此采用“5.3 共用基线 + 5.4 差异层”，而不是复制两套容易漂移的完整解码器。
 
 ## 2. 内存、Page 和 Bank
 
@@ -25,7 +27,7 @@ START + 0x50(W) + 126 + Bank + Page + STOP
 
 `ModuleMemoryService` 随后读回 126–127，确认模块接受了选择。所有选择、读取和写入都经过同一个互斥门，避免周期读取与手动操作互相改页。
 
-Bank 0–3 分别代表 Lane 1–8、9–16、17–24、25–32。Page 1Ch 使用单独的 NAD Block 数量；Page 9Fh/A0h–AFh 的 Bank 代表 CDB 实例，而不是通道组。
+5.3 的 Bank 0–3 分别代表 Lane 1–8、9–16、17–24、25–32。5.4 在 Page 01h 增加 escape encoding，可扩展到 Bank 0–31，即 Lane 1–256。Page 1Ch 使用单独的 NAD Bank 数量：5.3 最多 15，5.4 最多 255；Page 9Fh/A0h–AFh 的 Bank 代表 CDB 实例，而不是通道组。
 
 ## 3. 软件怎样决定读哪些页
 
@@ -41,6 +43,10 @@ Bank 0–3 分别代表 Lane 1–8、9–16、17–24、25–32。Page 1Ch 使�
 - 1Dh：Host Lane Switching。
 - 20h–2Fh：VDM 描述符、样本、阈值、标志、屏蔽和冻结控制。
 - 9Fh/A0h–AFh：CDB 的 LPL/EPL。
+- 0Ch/0Dh（5.4）：系统化页面/命名功能广告与固件管理。
+- 60h/61h/62h/6Dh（5.4）：固定极性、获取计数器、逐 Lane 功率阈值和 Media Lane Switching。
+
+5.4 的 Page 0Ch 读取成功后，其 256 位 Supported Pages Map 会成为可选页判断的优先依据；旧的分散能力位仍作为读取 0Ch 前的引导和一致性依据。
 
 可选页读取失败只形成采集警告，不会让整个模块快照失效。Reserved Page 从不访问。
 
@@ -76,6 +82,8 @@ CMIS 默认使用大端多字节数值，明确标注为小端的诊断计数器
 - Page 1Ch：最多 15 个 Bank、每 Bank 15 个 Normalized Application Descriptor。
 - Page 1Dh：Host Lane Redirection 的配置、Commit、结果和活动映射。
 
+5.4 还增加 300 GHz 网格、相对 Tx 输出功率阈值、NAD 的 Host/Media Interface GID、完整 U8 NAD Bank 索引、Lane/DP 获取计数器复位与 Media Lane Redirection。相同页面内的新增位只在 Revision 5.4 或更高时解释，避免把 5.3 Reserved 位误报为功能。
+
 寄存器全景使用逐字节访问表区分 RO、RO/COR、RW、RW/SC、WO、WO/SC、Mixed、Reserved 和 Vendor Specific。Mixed、RO/COR 与 Reserved 不允许直接从通用单字节写入口修改；需要状态机的命令通过专用工具执行。
 
 ## 6. VDM
@@ -93,6 +101,8 @@ VDM 由 Page 2Fh 广告组数，再按组使用：
 
 解码器把 Descriptor 中的 Observable Type、Resource 和 Threshold Set 关联到样本、阈值、标志和屏蔽。支持基础规范定义的 Laser Age、TEC、频率误差、激光温度、SNR、PAM4 LTP、BER、FERC、SEW、辅助电压和 ELS 输入功率；Custom/Restricted 类型保留类型号和原始值。
 
+5.4 的 `MonitoringDutyCycle` 可让模块只处理 0%–100% 的样本以节省功耗；软件显示能力位和当前占空比。Freeze/Unfreeze 仍按握手位确认，不把写入控制位本身当作完成。
+
 ## 7. CDB
 
 CDB 是 CMIS 的命令/回复通道。Page 9Fh 包含 6 字节命令头、2 字节回复头和 120 字节 LPL；A0h–AFh 提供最多 2048 字节 EPL。
@@ -109,7 +119,7 @@ CDB 是 CMIS 的命令/回复通道。Page 9Fh 包含 6 字节命令头、2 字�
   -> 按命令结构化解析回复
 ```
 
-CMIS 5.3 基础规范明确定义的 48 个命令都进入命令目录，并有 LPL/EPL 长度合同和请求/回复结构说明。能力、固件信息、应用属性、接口描述、PM、RMON、FEC、温度直方图和安全回复可语义化显示；没有固定回复体的命令显示状态和原始回复。
+CMIS 5.3 的 48 个命令与 5.4 的 52 个有效命令使用同一个版本化目录。5.4 新增 `0005h/0006h` 模块时间和 `010Bh–010Dh` 固件激活/Load Tag 命令，并移除 5.3 的 `0281h`；软件保留 0281h 供 5.3 使用。0050h 支持 15 页 EPL 批量应用属性，0051h 使用修正后的字段偏移并解析 12-bit Interface UID、`BitsPerSymbolExact` 和 `GridSpacingMin`。
 
 “CMIS CDB”页允许选择命令、实例并输入 LPL/EPL HEX。非法长度会在 I²C 写入前被拒绝。
 
@@ -124,6 +134,8 @@ CMIS 5.3 基础规范明确定义的 48 个命令都进入命令目录，并有 
 ```
 
 任何分块失败时软件尝试发送 `0102 Abort`。传输完成后不会自动执行 `0109 Run Image` 或 `010A Commit Image`，避免未经验证就复位模块或改变下次启动镜像。接真实模块时必须先读取 `0041 Firmware Management Features`，按模块声明选择 LPL/EPL、块大小、擦除值和超时。
+
+5.4 另外提供 `CheckActivationOptions`、Store/Clear/Retrieve Firmware Load Tag，以及 Page 0Dh 的 A/B/Fixed Load 状态和版本描述符。它们与原下载状态机共存，不会删除 5.3 流程。
 
 ## 9. 基础规范与外部补充规范
 
@@ -154,7 +166,7 @@ CDB 发送使用 `ICmisCdbMemoryAccess` 边界，协议状态机不引用 WPF、
 
 ## 11. 在软件里试用
 
-1. 顶部来源选择“模拟 CMIS 5.3 模块”。
+1. 顶部来源选择“模拟 CMIS 5.3 模块”或“模拟 CMIS 5.4 模块”。
 2. 连接并立即读取。
 3. 在“协议解析”查看静态、通道、诊断、VDM 与 CDB 字段。
 4. 在“寄存器全景”查看所有已采集页；双击可读取，允许写的字段可解锁写入。
@@ -162,11 +174,12 @@ CDB 发送使用 `ICmisCdbMemoryAccess` 边界，协议状态机不引用 WPF、
 6. 固件下载先用模拟文件验证流程；真实模块上不要在不了解镜像格式时尝试。
 7. 保存 `.omodump`，用第二次快照比较状态和控制位变化。
 
-完整逐页边界见 [CMIS 5.3 覆盖矩阵](08-CMIS-5.3覆盖矩阵.md)。
+完整逐页边界见 [CMIS 5.3 覆盖矩阵](08-CMIS-5.3覆盖矩阵.md)和 [CMIS 5.4 覆盖矩阵](09-CMIS-5.4覆盖矩阵.md)。
 
 ## 12. 官方资料
 
 - [OIF CMIS 5.3 PDF](https://www.oiforum.com/wp-content/uploads/OIF-CMIS-05.3.pdf)
+- [OIF CMIS 5.4 PDF](https://www.oiforum.com/wp-content/uploads/OIF-CMIS-05.4.pdf)
 - [OIF Implementation Agreements 与 CMIS 勘误](https://www.oiforum.com/technical-work/implementation-agreements-ias/)
 - [SNIA SFF-8024 Rev 4.14](https://members.snia.org/document/dl/26423)
 

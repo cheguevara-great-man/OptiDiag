@@ -17,12 +17,14 @@ public partial class App : System.Windows.Application
     {
         base.OnStartup(e);
         var sff8472Simulator = new Sff8472Simulator();
-        var cmisSimulator = new CmisSimulator();
+        var cmis53Simulator = new CmisSimulator(CmisSimulatorRevision.Cmis53);
+        var cmis54Simulator = new CmisSimulator(CmisSimulatorRevision.Cmis54);
         var adapter = new SwitchableI2cAdapter(
             new Dictionary<string, OptiDiag.I2c.Abstractions.II2cAdapter>
             {
                 ["simulator-sff8472"] = sff8472Simulator,
-                ["simulator-cmis"] = cmisSimulator
+                ["simulator-cmis53"] = cmis53Simulator,
+                ["simulator-cmis54"] = cmis54Simulator
             },
             "simulator-sff8472");
         IOpticalModuleProtocol[] protocols =

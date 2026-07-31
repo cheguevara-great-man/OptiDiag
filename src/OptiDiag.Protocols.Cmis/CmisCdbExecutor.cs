@@ -32,7 +32,7 @@ public sealed record CmisCdbExecutionResult(
 }
 
 /// <summary>
-/// Implements the CMIS 5.3 CDB command/reply sequence:
+/// Implements the CMIS 5.3/5.4 CDB command/reply sequence:
 /// EPL first, non-triggering Page 9Fh content next, CMDID last, status polling,
 /// then reply retrieval and validation.
 /// </summary>
@@ -53,7 +53,7 @@ public sealed class CmisCdbExecutor
     {
         if (instance > 1)
         {
-            throw new ArgumentOutOfRangeException(nameof(instance), "CMIS 5.3 supports at most two CDB instances.");
+            throw new ArgumentOutOfRangeException(nameof(instance), "CMIS supports at most two CDB instances.");
         }
 
         var messagePage = CmisCdbCodec.EncodeMessagePage(command);

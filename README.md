@@ -1,6 +1,6 @@
 # OptiDiag
 
-OptiDiag 是一套使用 C#、.NET 10 和 WPF 开发的光模块固件调试上位机。当前版本以纯软件方式运行，内置互相独立的 SFF-8472 与 CMIS 5.3 可读写模拟模块；不需要任何真实 I²C 硬件即可演示协议自动检测、分页/Bank 访问和完整调试流程。
+OptiDiag 是一套使用 C#、.NET 10 和 WPF 开发的光模块固件调试上位机。当前版本以纯软件方式运行，内置互相独立的 SFF-8472、CMIS 5.3 与 CMIS 5.4 可读写模拟模块；不需要任何真实 I²C 硬件即可演示协议自动检测、分页/Bank 访问和完整调试流程。
 
 ## 当前功能
 
@@ -13,8 +13,10 @@ OptiDiag 是一套使用 C#、.NET 10 和 WPF 开发的光模块固件调试上�
 - SFF-8690 Rev 1.5 能力、频率网格、通道/波长、误差、当前状态和锁存状态。
 - RPM Page 20h-24h 重组为第二个 SFF-8472 模块完整解码；Page 25h 保留、Page 26h-27h 厂商数据原样显示。
 - CMIS 5.3 基础规范的 Lower、Page 00h–04h、10h–1Dh、20h–2Fh、9Fh/A0h–AFh 动态采集、字段解析和访问权限。
+- CMIS 5.4 正式版的版本化扩展：Page 0Ch/0Dh、60h/61h/62h/6Dh、系统化页面位图、最多 256 Lane、255 个 NAD Bank、300 GHz、相对功率阈值、固定极性、获取计数器、Media Lane Switching 和 VDM 采样占空比。
 - CMIS 可调谐激光器、PRBS/BER/SNR 诊断、时延、Network Path、NAD、Host Lane Switching 和完整 VDM 关联解析。
 - CMIS 5.3 基础规范定义的 48 个 CDB 命令目录、逐命令 LPL/EPL 合同、校验、执行状态机和常用回复语义解析。
+- CMIS 5.4 的 52 个有效 CDB 命令视图：新增 0005h/0006h 与 010Bh–010Dh，保留 5.3 的 0281h 但在 5.4 中按规范隐藏；支持模块时间、激活影响与 Firmware Load Tag。
 - CMIS 固件 Start/LPL 或 EPL 分块写入/Complete/失败 Abort 流程；Run 与 Commit 保持显式操作，不自动复位。
 - CMIS 模块温度/电压、最多 32 通道的 Tx 光功率、偏置电流、Rx 光功率、通道告警、输出状态和数据通道状态。
 - CMIS Bank Select + Page Select 原子选择、选择值读回校验，以及带 Bank 地址的原始寄存器读写。
@@ -63,6 +65,7 @@ dotnet test .\OptiDiag.sln
 7. [SFF-8472/SFF-8690 实现覆盖清单](docs/06-SFF-8472与SFF-8690实现覆盖清单.md)
 8. [CMIS 协议与实现导读](docs/07-CMIS协议与实现导读.md)
 9. [CMIS 5.3 覆盖矩阵](docs/08-CMIS-5.3覆盖矩阵.md)
+10. [CMIS 5.4 覆盖矩阵与兼容说明](docs/09-CMIS-5.4覆盖矩阵.md)
 
 ## 设计边界
 
@@ -76,6 +79,7 @@ dotnet test .\OptiDiag.sln
 - [SNIA SFF-8690 Rev 1.5](https://members.snia.org/document/dl/25977)
 - [SNIA SFF-8024 Rev 4.14](https://members.snia.org/document/dl/26423)
 - [OIF CMIS 5.3](https://www.oiforum.com/wp-content/uploads/OIF-CMIS-05.3.pdf)
+- [OIF CMIS 5.4](https://www.oiforum.com/wp-content/uploads/OIF-CMIS-05.4.pdf)
 - [OIF Implementation Agreements（含 CMIS 5.x 勘误）](https://www.oiforum.com/technical-work/implementation-agreements-ias/)
 - [NXP I²C-bus specification UM10204](https://www.nxp.com/docs/en/user-guide/UM10204.pdf)
 

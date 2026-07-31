@@ -4,7 +4,7 @@ using OptiDiag.Protocols.Abstractions;
 
 namespace OptiDiag.Protocols.Cmis;
 
-public sealed class CmisProtocol : IOpticalModuleProtocol
+public sealed class CmisProtocol : IOpticalModuleProtocol, ICapturedRevisionProvider
 {
     public const string LowerRegionId = CmisMemoryMap.LowerRegionId;
     public const string Page00RegionId = CmisMemoryMap.Page00RegionId;
@@ -19,7 +19,7 @@ public sealed class CmisProtocol : IOpticalModuleProtocol
 
     public string DisplayName => "CMIS";
 
-    public string Revision => "5.3";
+    public string Revision => "5.3/5.4";
 
     public IReadOnlyList<MemoryCaptureRegion> CapturePlan { get; } = CmisMemoryMap.BuildCapturePlan();
 
@@ -32,6 +32,12 @@ public sealed class CmisProtocol : IOpticalModuleProtocol
     {
         var lower = dump.FindRegion(LowerRegionId)?.Data;
         return lower is { Length: >= 64 } && CmisIdentifiers.Contains(lower[0]);
+    }
+
+    public string ResolveRevision(IReadOnlyList<MemoryRegionData> capturedRegions)
+    {
+        var lower = capturedRegions.FirstOrDefault(region => region.Id == LowerRegionId)?.Data;
+        return lower is { Length: > 1 } ? new CmisRevision(lower[1]).ToString() : Revision;
     }
 
     public DecodedModule Decode(ModuleDump dump)
@@ -213,6 +219,11 @@ public sealed class CmisProtocol : IOpticalModuleProtocol
             (2, "datapath-fw-error", "数据通道固件故障"),
             (1, "module-fw-error", "模块固件故障"),
             (0, "module-state-changed", "模块状态已变化"));
+        if (new CmisRevision(lower[1]).IsAtLeast54)
+        {
+            AddByte(lower[8], "故障", "Lower.8.3",
+                (3, "abnormal-fw-indication", "固件异常指示"));
+        }
         AddByte(lower[9], "告警/预警", "Lower.9",
             (7, "vcc-low-warning", "电压低预警"),
             (6, "vcc-high-warning", "电压高预警"),
@@ -325,12 +336,14 @@ public sealed class CmisProtocol : IOpticalModuleProtocol
     private static IReadOnlyList<RegisterValue> DecodeRegisters(ModuleDump dump)
     {
         var result = new List<RegisterValue>();
+        var revision = new CmisRevision(
+            dump.FindRegion(CmisMemoryMap.LowerRegionId)?.Data.ElementAtOrDefault(1) ?? 0);
         foreach (var region in dump.Regions)
         {
             for (var index = 0; index < region.Data.Length; index++)
             {
                 var offset = region.Offset + index;
-                var (name, description, access) = CmisRegisterMap.Describe(region, offset);
+                var (name, description, access) = CmisRegisterMap.Describe(region, offset, revision);
                 result.Add(new RegisterValue(
                     region.Id,
                     region.DeviceAddress,
@@ -563,7 +576,7 @@ public sealed class CmisProtocol : IOpticalModuleProtocol
     private static string ReadAscii(byte[] source, int offset, int length) =>
         Encoding.ASCII.GetString(source, offset, length).Trim(' ', '\0', '\xFF');
 
-    private static string FormatRevision(byte raw) => $"{raw >> 4}.{raw & 0x0F}";
+    private static string FormatRevision(byte raw) => new CmisRevision(raw).ToString();
 
     private static int DecodeBankCount(byte supportedPages) =>
         CmisMemoryMap.DecodeLaneBankCount(supportedPages);

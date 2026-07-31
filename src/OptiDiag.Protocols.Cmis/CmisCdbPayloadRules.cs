@@ -38,7 +38,7 @@ public sealed record CmisCdbPayloadRule(
 }
 
 /// <summary>
-/// Request/reply payload contracts from CMIS 5.3 chapter 9.
+/// Request/reply payload contracts from CMIS 5.3/5.4 chapter 9.
 /// Variable lengths remain constrained by the base specification and by the
 /// CDB LPL/EPL capacities; capability-query values may further restrict them.
 /// </summary>
@@ -50,6 +50,8 @@ public static class CmisCdbPayloadRules
         Exact(0x0001, 4, "Password U32", "Empty"),
         Exact(0x0002, 4, "NewPassword U32", "Empty"),
         Empty(0x0004, "Empty"),
+        Empty(0x0005, "Module time S64 in nanoseconds since POSIX epoch"),
+        Exact(0x0006, 9, "TimeSpec S64; IsIncrement U8", "New module time S64"),
 
         Empty(0x0040, "CDB flags, command-support bitmap and MaxCompletionTime"),
         Empty(0x0041, "Firmware transfer mechanisms, sizes and maximum durations"),
@@ -58,7 +60,8 @@ public static class CmisCdbPayloadRules
         Empty(0x0044, "Certificate, digest and signature capabilities"),
         Empty(0x0045, "Externally defined feature advertisements"),
         Exact(0x0050, 2, "ApplicationNumber U16", "Application attributes and thresholds"),
-        Exact(0x0051, 3, "InterfaceID U16; InterfaceLocation U8", "Interface name, description, rate and modulation"),
+        Exact(0x0051, 3, "InterfaceUID U12 in U16; InterfaceLocation U8",
+            "Name, description, rate, modulation, exact bits/symbol and minimum grid"),
 
         Empty(0x0100, "Firmware status and information for images A, B and factory/boot"),
         Variable(0x0101, 8, 120, 0, 0, "ImageSize U32; reserved U32; VendorData[0..112]", "Empty"),
@@ -71,6 +74,9 @@ public static class CmisCdbPayloadRules
         Exact(0x0108, 1, "CopyDirection U8", "Length U32; CopyDirection U8; CopyStatus U8"),
         Exact(0x0109, 4, "Reserved U8; ImageToRun U8; DelayToReset U16", "Empty"),
         Empty(0x010A, "Empty"),
+        Empty(0x010B, "TrafficImpact U8; ConfigImpact U8"),
+        Exact(0x010C, 66, "FirmwareBank U8; Control U8; LoadTag ASCII[64]", "Empty"),
+        Exact(0x010D, 1, "FirmwareBank U8", "FirmwareBank U8; reserved U8; LoadTag ASCII[64]"),
 
         Exact(0x0200, 4, "LinkMode and ClearAllStatistics controls", "Empty"),
         Empty(0x0201, "Host-side and media-side PM monitor advertisements"),

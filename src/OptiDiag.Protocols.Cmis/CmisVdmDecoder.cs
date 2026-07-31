@@ -16,6 +16,8 @@ internal static class CmisVdmDecoder
     public static void Decode(ModuleDump dump, List<DecodedField> fields)
     {
         var sink = new CmisFieldSink(fields);
+        var revision = new CmisRevision(
+            dump.FindRegion(CmisMemoryMap.LowerRegionId)?.Data.ElementAtOrDefault(1) ?? 0);
         var banks = dump.Regions
             .Where(x => x.Page == 0x2F)
             .Select(x => x.Bank ?? (byte)0)
@@ -30,7 +32,7 @@ internal static class CmisVdmDecoder
                 continue;
             }
 
-            DecodeAdvertisement(advertisement, bank, sink);
+            DecodeAdvertisement(advertisement, bank, revision, sink);
             var groupCount = (advertisement[0] & 0x03) + 1;
             var descriptors = new List<Descriptor>();
             for (byte group = 0; group < groupCount; group++)
@@ -69,12 +71,21 @@ internal static class CmisVdmDecoder
         }
     }
 
-    private static void DecodeAdvertisement(byte[] page, byte bank, CmisFieldSink sink)
+    private static void DecodeAdvertisement(
+        byte[] page,
+        byte bank,
+        CmisRevision revision,
+        CmisFieldSink sink)
     {
         sink.Add("VDM 能力", $"Bank{bank}VDMGroupsSupported", (page[0] & 0x03) + 1,
             CmisDecoderHelpers.Source(0x2F, 128, bank, "1-0"));
         sink.Bool("VDM 能力", $"Bank{bank}PowerSavingSupport", page[0], 2,
             CmisDecoderHelpers.Source(0x2F, 128, bank, "2"));
+        if (revision.IsAtLeast54)
+        {
+            sink.Bool("5.4 VDM 能力", $"Bank{bank}MonitoringDutyCycleSupported", page[0], 3,
+                CmisDecoderHelpers.Source(0x2F, 128, bank, "3"));
+        }
         sink.Add("VDM 能力", $"Bank{bank}FineIntervalLength",
             CmisDecoderHelpers.FormatNumber(CmisDecoderHelpers.U16(page, 1) * 0.1, "ms"),
             CmisDecoderHelpers.Source(0x2F, 129, bank));
@@ -82,6 +93,14 @@ internal static class CmisVdmDecoder
             CmisDecoderHelpers.Source(0x2F, 144, bank, "7"), writable: true);
         sink.Bool("VDM 控制", $"Bank{bank}PowerSavingMode", page[16], 6,
             CmisDecoderHelpers.Source(0x2F, 144, bank, "6"), writable: true);
+        if (revision.IsAtLeast54)
+        {
+            var dutyCycle = (page[16] >> 2) & 0x0F;
+            sink.Add("5.4 VDM 控制", $"Bank{bank}MonitoringDutyCycle",
+                $"{Math.Min(dutyCycle, 10) * 10}% samples",
+                CmisDecoderHelpers.Source(0x2F, 144, bank, "5-2"),
+                "k=0..10；模块处理 min(k,10)×10% 的样本", writable: true);
+        }
         sink.Bool("VDM 状态", $"Bank{bank}FreezeDone", page[17], 7,
             CmisDecoderHelpers.Source(0x2F, 145, bank, "7"));
         sink.Bool("VDM 状态", $"Bank{bank}UnfreezeDone", page[17], 6,

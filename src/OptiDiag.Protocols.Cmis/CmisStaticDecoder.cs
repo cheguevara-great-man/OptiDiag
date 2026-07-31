@@ -31,6 +31,7 @@ internal static class CmisStaticDecoder
 
     private static void DecodeLower(byte[] lower, byte[]? page01, CmisFieldSink sink)
     {
+        var revision = CmisRevision.FromLowerMemory(lower);
         sink.Add("协议", "SFF8024Identifier", CmisCodeTables.Identifier(lower[0]), "Lower.0");
         sink.Add("协议", "CmisRevision", $"{lower[1] >> 4}.{lower[1] & 0x0F}", "Lower.1");
         sink.Bool("管理特性", "MemoryModelFlat", lower[2], 7, "Lower.2.7",
@@ -66,6 +67,11 @@ internal static class CmisStaticDecoder
             (2, "DataPathFirmwareErrorFlag"),
             (1, "ModuleFirmwareErrorFlag"),
             (0, "ModuleStateChangedFlag"));
+        if (revision.IsAtLeast54)
+        {
+            sink.Bool("模块标志", "AbnormalFwIndicationFlag", lower[8], 3, "Lower.8.3",
+                "CMIS 5.4；锁存，只读/读清除");
+        }
         AddThresholdFlagBits(sink, lower[9], 9, "Vcc", "Temp");
         AddThresholdFlagBits(sink, lower[10], 10, "Aux2", "Aux1");
         AddThresholdFlagBits(sink, lower[11], 11, "CustomMon", "Aux3");
@@ -99,6 +105,11 @@ internal static class CmisStaticDecoder
             (2, "DataPathFirmwareErrorMask"),
             (1, "ModuleFirmwareErrorMask"),
             (0, "ModuleStateChangedMask"));
+        if (revision.IsAtLeast54)
+        {
+            sink.Bool("模块屏蔽", "AbnormalFwIndicationMask", lower[31], 3, "Lower.31.3",
+                "CMIS 5.4", true);
+        }
         AddThresholdMaskBits(sink, lower[32], 32, "Vcc", "Temp");
         AddThresholdMaskBits(sink, lower[33], 33, "Aux2", "Aux1");
         AddThresholdMaskBits(sink, lower[34], 34, "CustomMon", "Aux3");
@@ -120,6 +131,18 @@ internal static class CmisStaticDecoder
         sink.Enum("扩展信息", "SFF8024FiberFaceType", lower[61] & 0x03,
             value => value switch { 0 => "未知/不适用", 1 => "PC/UPC", 2 => "APC", _ => "保留" },
             "Lower.61.1-0");
+        if (revision.IsAtLeast54)
+        {
+            sink.Enum("扩展信息", "SFF8024HeatsinkType", lower[61] >> 4,
+                value => value switch
+                {
+                    0 => "未知/未指定",
+                    1 => "RHS（Riding Heatsink）",
+                    2 => "IHS（Integrated Heatsink，Open Top）",
+                    3 => "IHS（Integrated Heatsink，Closed Top）",
+                    _ => "保留"
+                }, "Lower.61.7-4");
+        }
         sink.Hex("扩展信息", "LowPowerRestrictions", lower.AsSpan(62, 1), "Lower.62");
 
         sink.Add("媒体", "MediaType", CmisCodeTables.MediaType(lower[85]), "Lower.85");
@@ -171,6 +194,7 @@ internal static class CmisStaticDecoder
 
     private static void DecodePage01(byte[] lower, byte[] page, CmisFieldSink sink)
     {
+        var revision = CmisRevision.FromLowerMemory(lower);
         sink.Add("版本", "ModuleInactiveFirmwareRevision", $"{page[0]}.{page[1]}", "P01h.128-129");
         sink.Add("版本", "ModuleHardwareRevision", $"{page[2]}.{page[3]}", "P01h.130-131");
 
@@ -209,7 +233,7 @@ internal static class CmisStaticDecoder
         sink.Bool("页面能力", "CmisFfSupported", supportedPages, 3, "P01h.142.3",
             "Page 05h 具体语义由 CMIS-FF 补充规范定义");
         sink.Bool("页面能力", "Page03hSupported", supportedPages, 2, "P01h.142.2");
-        sink.Add("页面能力", "BanksSupported", CmisMemoryMap.DecodeLaneBankCount(supportedPages),
+        sink.Add("页面能力", "BanksSupported", CmisMemoryMap.DecodeLaneBankCount(page, revision),
             "P01h.142.1-0", "每个 Lane Bank 表示 8 条通道");
 
         var modSel = page[15];
@@ -254,8 +278,22 @@ internal static class CmisStaticDecoder
         DecodeCdbAdvertisements(page, sink);
         DecodeAdditionalDurations(page, sink);
 
-        var nadBanks = page[47] & 0x0F;
-        sink.Add("应用能力", "NADBanksSupported", nadBanks, "P01h.175.3-0",
+        if (revision.IsAtLeast54)
+        {
+            sink.Hex("5.4 固定极性", "DefaultInputPolarityTx", page.AsSpan(43, 1), "P01h.171");
+            sink.Hex("5.4 固定极性", "DefaultOutputPolarityRx", page.AsSpan(44, 1), "P01h.172");
+            sink.Bool("5.4 页面能力", "Page0ChSupported", page[45], 7, "P01h.173.7");
+            sink.Bool("5.4 页面能力", "Page0DhSupported", page[45], 6, "P01h.173.6");
+            sink.Bool("5.4 页面能力", "Page60hSupported", page[46], 7, "P01h.174.7");
+            sink.Bool("5.4 页面能力", "Page61hSupported", page[46], 6, "P01h.174.6");
+            sink.Bool("5.4 页面能力", "Page62hSupported", page[46], 5, "P01h.174.5");
+            sink.Add("5.4 页面能力", "ExtraLaneBanksSupported", page[46] & 0x1F, "P01h.174.4-0",
+                "当 P01h.142.1-0=11b 时，总 Bank 数为该值+1");
+        }
+
+        var nadBanks = CmisMemoryMap.DecodeNadBankCount(page[47], revision);
+        sink.Add("应用能力", "NADBanksSupported", nadBanks,
+            revision.IsAtLeast54 ? "P01h.175.7-0" : "P01h.175.3-0",
             $"{nadBanks * 15} 个 Normalized Application Descriptor 容量");
         for (var app = 0; app < 15; app++)
         {
@@ -275,6 +313,10 @@ internal static class CmisStaticDecoder
         sink.Bool("页面能力", "HostLaneSwitchingSupported", page[124], 7, "P01h.252.7");
         sink.Bool("页面能力", "LinkTrainingSupported", page[124], 6, "P01h.252.6",
             "具体语义由 CMIS-LT 补充规范定义");
+        if (revision.IsAtLeast54)
+        {
+            sink.Bool("5.4 页面能力", "MediaLaneSwitchingSupported", page[124], 5, "P01h.252.5");
+        }
         sink.Add("校验", "Page01Checksum", $"0x{page[127]:X2}", "P01h.255");
 
         if (lower[85] is not 0x01 and not 0x02)

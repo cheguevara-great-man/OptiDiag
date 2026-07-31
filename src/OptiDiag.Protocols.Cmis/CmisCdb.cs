@@ -14,10 +14,20 @@ public sealed record CmisCdbCommandDefinition(
     string Title,
     string Group,
     CmisCdbSupport Support,
-    string Section);
+    string Section)
+{
+    public CmisRevision IntroducedRevision { get; init; } = CmisRevision.V53;
+    public CmisRevision? RemovedRevision { get; init; }
+    public bool IsObsolescent { get; init; }
+
+    public bool IsAvailableIn(CmisRevision revision) =>
+        revision.CompareTo(IntroducedRevision) >= 0
+        && (RemovedRevision is null || revision.CompareTo(RemovedRevision.Value) < 0);
+}
 
 /// <summary>
-/// All command IDs explicitly defined by the CMIS 5.3 base document.
+/// Union of command IDs explicitly defined by the CMIS 5.3 and 5.4 base
+/// documents. Use <see cref="ForRevision"/> for the active-version view.
 /// Reserved ranges, custom commands and supplement-defined VCS commands are
 /// intentionally not presented as base CMIS commands.
 /// </summary>
@@ -29,6 +39,8 @@ public static class CmisCdbCommandCatalog
         Cmd(0x0001, "Enter Password", "Module", CmisCdbSupport.Advertised, "9.3.2"),
         Cmd(0x0002, "Change Password", "Module", CmisCdbSupport.Advertised, "9.3.3"),
         Cmd(0x0004, "Abort Processing", "Module", CmisCdbSupport.Advertised, "9.3.4"),
+        Cmd54(0x0005, "Get Module Time", "Module", CmisCdbSupport.Advertised, "9.3.5"),
+        Cmd54(0x0006, "Set Module Time", "Module", CmisCdbSupport.Advertised, "9.3.6"),
 
         Cmd(0x0040, "Module Features", "Capabilities Inquiry", CmisCdbSupport.Required, "9.4.1"),
         Cmd(0x0041, "Firmware Management Features", "Capabilities Inquiry", CmisCdbSupport.Required, "9.4.2"),
@@ -50,6 +62,9 @@ public static class CmisCdbCommandCatalog
         Cmd(0x0108, "Copy Firmware Image", "Firmware Management", CmisCdbSupport.Advertised, "9.7.9"),
         Cmd(0x0109, "Run Firmware Image", "Firmware Management", CmisCdbSupport.Advertised, "9.7.10"),
         Cmd(0x010A, "Commit Firmware Image", "Firmware Management", CmisCdbSupport.Advertised, "9.7.11"),
+        Cmd54(0x010B, "Check Firmware Activation Options", "Firmware Management", CmisCdbSupport.Advertised, "9.6.13"),
+        Cmd54(0x010C, "Store Firmware Load Tag", "Firmware Management", CmisCdbSupport.Advertised, "9.6.14"),
+        Cmd54(0x010D, "Retrieve Firmware Load Tag", "Firmware Management", CmisCdbSupport.Advertised, "9.6.15"),
 
         Cmd(0x0200, "Control PM", "Performance Monitoring", CmisCdbSupport.Advertised, "9.8.1"),
         Cmd(0x0201, "Get PM Feature Information", "Performance Monitoring", CmisCdbSupport.Advertised, "9.8.2"),
@@ -67,8 +82,10 @@ public static class CmisCdbCommandCatalog
         Cmd(0x0232, "Control Max FEC Symbol Error Weight", "Performance Monitoring", CmisCdbSupport.Advertised, "9.8.10"),
         Cmd(0x0233, "Get Max FEC Symbol Error Weight", "Performance Monitoring", CmisCdbSupport.Advertised, "9.8.11"),
 
-        Cmd(0x0280, "Data Monitoring and Recording Controls", "Data Recording", CmisCdbSupport.Advertised, "9.9.1"),
-        Cmd(0x0281, "Data Monitoring and Recording Advertisement", "Data Recording", CmisCdbSupport.Advertised, "9.9.2"),
+        Cmd(0x0280, "Data Monitoring and Recording Controls", "Data Recording", CmisCdbSupport.Advertised, "9.9.1")
+            with { IsObsolescent = true },
+        Cmd(0x0281, "Data Monitoring and Recording Advertisement", "Data Recording", CmisCdbSupport.Advertised, "9.9.2")
+            with { RemovedRevision = CmisRevision.V54 },
         Cmd(0x0290, "Temperature Histogram", "Data Recording", CmisCdbSupport.Advertised, "9.9.3"),
         Cmd(0x0380, "Loopbacks", "Diagnostics and Debug", CmisCdbSupport.Advertised, "9.11.1"),
 
@@ -83,6 +100,9 @@ public static class CmisCdbCommandCatalog
     public static CmisCdbCommandDefinition? Find(ushort id) =>
         Commands.FirstOrDefault(command => command.Id == id);
 
+    public static IReadOnlyList<CmisCdbCommandDefinition> ForRevision(CmisRevision revision) =>
+        Commands.Where(command => command.IsAvailableIn(revision)).ToArray();
+
     private static CmisCdbCommandDefinition Cmd(
         ushort id,
         string title,
@@ -90,6 +110,14 @@ public static class CmisCdbCommandCatalog
         CmisCdbSupport support,
         string section) =>
         new(id, title, group, support, section);
+
+    private static CmisCdbCommandDefinition Cmd54(
+        ushort id,
+        string title,
+        string group,
+        CmisCdbSupport support,
+        string section) =>
+        Cmd(id, title, group, support, section) with { IntroducedRevision = CmisRevision.V54 };
 }
 
 public sealed record CmisCdbCommand(
@@ -114,7 +142,7 @@ public sealed record CmisCdbReply(
     CmisCdbCommandDefinition? Definition);
 
 /// <summary>
-/// Pure CMIS 5.3 CDB wire codec. Hardware transports can write EPL first and
+/// Pure CMIS 5.3/5.4 CDB wire codec. Hardware transports can write EPL first and
 /// Page 9Fh last; writing CMDID is the command trigger.
 /// </summary>
 public static class CmisCdbCodec
