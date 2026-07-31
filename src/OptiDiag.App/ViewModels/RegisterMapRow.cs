@@ -2,11 +2,16 @@ using OptiDiag.Protocols.Abstractions;
 
 namespace OptiDiag.App.ViewModels;
 
+public sealed record RegisterMapCell(RegisterValue Register)
+{
+    public string HexValue => Register.HexValue;
+}
+
 public sealed class RegisterMapRow
 {
-    private readonly string[] _cells;
+    private readonly RegisterMapCell?[] _cells;
 
-    private RegisterMapRow(string location, string[] cells)
+    private RegisterMapRow(string location, RegisterMapCell?[] cells)
     {
         Location = location;
         _cells = cells;
@@ -14,7 +19,10 @@ public sealed class RegisterMapRow
 
     public string Location { get; }
 
-    public string this[int column] => _cells[column];
+    public RegisterMapCell? this[int column] => _cells[column];
+
+    public RegisterMapCell? GetCell(int column) =>
+        column is >= 0 and < 16 ? _cells[column] : null;
 
     public static IReadOnlyList<RegisterMapRow> Build(IEnumerable<RegisterValue> registers)
     {
@@ -22,23 +30,24 @@ public sealed class RegisterMapRow
 
         foreach (var region in registers.GroupBy(register => register.RegionId))
         {
-            var valuesByOffset = region.ToDictionary(register => register.Offset, register => register.Value);
-            if (valuesByOffset.Count == 0)
+            var registersByOffset = region.ToDictionary(register => register.Offset);
+            if (registersByOffset.Count == 0)
             {
                 continue;
             }
 
-            var firstRowOffset = valuesByOffset.Keys.Min() & ~0x0F;
-            var lastRowOffset = valuesByOffset.Keys.Max() & ~0x0F;
+            var firstRowOffset = registersByOffset.Keys.Min() & ~0x0F;
+            var lastRowOffset = registersByOffset.Keys.Max() & ~0x0F;
 
             for (var rowOffset = firstRowOffset; rowOffset <= lastRowOffset; rowOffset += 16)
             {
-                var cells = new string[16];
+                var cells = new RegisterMapCell?[16];
                 for (var column = 0; column < cells.Length; column++)
                 {
-                    cells[column] = valuesByOffset.TryGetValue(rowOffset + column, out var value)
-                        ? value.ToString("X2")
-                        : "--";
+                    if (registersByOffset.TryGetValue(rowOffset + column, out var register))
+                    {
+                        cells[column] = new RegisterMapCell(register);
+                    }
                 }
 
                 result.Add(new RegisterMapRow($"{region.Key}  {rowOffset:X2}", cells));

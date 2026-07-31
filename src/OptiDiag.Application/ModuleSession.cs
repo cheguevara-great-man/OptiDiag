@@ -86,6 +86,13 @@ public sealed class ModuleSession : IAsyncDisposable
         CancellationToken cancellationToken = default) =>
         _memory.WriteByteAsync(deviceAddress, page, offset, value, cancellationToken: cancellationToken);
 
+    public Task<byte> ReadByteAsync(
+        byte deviceAddress,
+        byte? page,
+        byte offset,
+        CancellationToken cancellationToken = default) =>
+        _memory.ReadByteAsync(deviceAddress, page, offset, cancellationToken: cancellationToken);
+
     private void OnTransferCompleted(object? sender, I2cTraceEntry entry) => TransferCompleted?.Invoke(this, entry);
 
     public async ValueTask DisposeAsync()

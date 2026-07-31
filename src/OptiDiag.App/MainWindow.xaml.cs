@@ -1,5 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
 using Microsoft.Win32;
 using OptiDiag.App.ViewModels;
 
@@ -158,6 +160,111 @@ public partial class MainWindow : Window
         {
             await ExecuteAsync(() => ViewModel.WriteSelectedRegisterAsync(WriteValueBox.Text));
         }
+    }
+
+    private async void RegisterMapGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton == MouseButton.Left && GetSelectedRegisterMapCell() is { } cell)
+        {
+            await OpenRegisterAccessDialogAsync(cell.Register);
+        }
+    }
+
+    private void RegisterMapGrid_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (FindVisualParent<DataGridCell>(e.OriginalSource as DependencyObject) is not { } cell)
+        {
+            return;
+        }
+
+        RegisterMapGrid.CurrentCell = new DataGridCellInfo(cell.DataContext, cell.Column);
+        RegisterMapGrid.SelectedCells.Clear();
+        cell.IsSelected = true;
+        cell.Focus();
+    }
+
+    private async void RegisterMapReadMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetSelectedRegisterMapCell() is { } cell)
+        {
+            await ExecuteAsync(async () => await ViewModel.ReadRegisterAsync(cell.Register));
+        }
+    }
+
+    private async void RegisterMapWriteMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetSelectedRegisterMapCell() is { } cell)
+        {
+            await OpenRegisterAccessDialogAsync(cell.Register);
+        }
+    }
+
+    private RegisterMapCell? GetSelectedRegisterMapCell()
+    {
+        if (RegisterMapGrid.CurrentItem is not RegisterMapRow row
+            || RegisterMapGrid.CurrentCell.Column is not { } column)
+        {
+            return null;
+        }
+
+        return row.GetCell(column.DisplayIndex - 1);
+    }
+
+    private async Task OpenRegisterAccessDialogAsync(OptiDiag.Protocols.Abstractions.RegisterValue register)
+    {
+        var dialog = new RegisterAccessDialog(register)
+        {
+            Owner = this
+        };
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        if (dialog.RequestedAction == RegisterDialogAction.Read)
+        {
+            await ExecuteAsync(async () => await ViewModel.ReadRegisterAsync(register));
+            return;
+        }
+
+        if (dialog.RequestedAction != RegisterDialogAction.Write)
+        {
+            return;
+        }
+
+        var answer = MessageBox.Show(
+            this,
+            $"确认写入 {register.AddressText}？\n"
+            + $"旧值：0x{register.HexValue}\n"
+            + $"新值：0x{dialog.RequestedHexValue}\n\n"
+            + "该操作会立即发送 I²C 写事务，并记录到审计日志。",
+            "确认寄存器写入",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+        if (answer == MessageBoxResult.Yes)
+        {
+            await ExecuteAsync(
+                () => ViewModel.WriteRegisterAsync(
+                    register,
+                    dialog.RequestedHexValue,
+                    dialog.WriteUnlocked));
+        }
+    }
+
+    private static T? FindVisualParent<T>(DependencyObject? child)
+        where T : DependencyObject
+    {
+        while (child is not null)
+        {
+            if (child is T parent)
+            {
+                return parent;
+            }
+
+            child = VisualTreeHelper.GetParent(child);
+        }
+
+        return null;
     }
 
     private void ClearTracesButton_Click(object sender, RoutedEventArgs e) => ViewModel.ClearTraces();
