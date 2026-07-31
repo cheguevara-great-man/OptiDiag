@@ -4,7 +4,7 @@ using OptiDiag.Protocols.Abstractions;
 
 namespace OptiDiag.Protocols.Sff8472;
 
-public sealed class Sff8472Protocol : IOpticalModuleProtocol
+public sealed partial class Sff8472Protocol : IOpticalModuleProtocol
 {
     public const string A0RegionId = "a0";
     public const string A2LowerRegionId = "a2-lower";
@@ -67,10 +67,12 @@ public sealed class Sff8472Protocol : IOpticalModuleProtocol
     public bool CanDecode(ModuleDump dump)
     {
         var a0 = dump.FindRegion(A0RegionId)?.Data;
-        return a0 is { Length: >= 96 } && a0[0] == 0x03;
+        return a0 is { Length: >= 96 } && a0[0] is 0x02 or 0x03;
     }
 
-    public DecodedModule Decode(ModuleDump dump)
+    public DecodedModule Decode(ModuleDump dump) => DecodeCore(dump, includeRemoteModule: true);
+
+    private DecodedModule DecodeCore(ModuleDump dump, bool includeRemoteModule)
     {
         var a0 = RequireRegion(dump, A0RegionId, 96);
         var a2 = RequireRegion(dump, A2LowerRegionId, 128);
@@ -85,9 +87,21 @@ public sealed class Sff8472Protocol : IOpticalModuleProtocol
         var calibration = Calibration.Create(information, a2, diagnostics);
         var thresholds = DecodeThresholds(a2, calibration);
         var measurements = DecodeMeasurements(a2, calibration, thresholds);
-        var alarms = DecodeAlarms(a2);
+        var alarms = DecodeAlarms(a2).ToList();
+        AppendPage02Alarms(dump, alarms);
         var status = DecodeStatus(a0, a2);
         var registers = DecodeRegisters(dump);
+        var protocol = DecodeProtocolIdentification(a0, dump);
+        if ((a0[65] & 0x40) != 0 && dump.FindRegion(A2Page02RegionId) is null)
+        {
+            diagnostics.Add(new DecodeDiagnostic(
+                DiagnosticSeverity.Warning,
+                "模块通过 A0h.65.6 声明了 SFF-8690，但未能读取 A2h Page 02h。",
+                A0RegionId));
+        }
+
+        var fields = DecodeSemanticFields(dump, information, measurements, diagnostics);
+        var remoteModule = includeRemoteModule ? DecodeRemoteModule(dump, diagnostics) : null;
 
         if (!information.DigitalDiagnosticsImplemented)
         {
@@ -101,24 +115,35 @@ public sealed class Sff8472Protocol : IOpticalModuleProtocol
             DiagnosticSeverity.Information,
             "A0h/A2h 为规范中的 8 位名称；I2C 事务使用 7 位地址 0x50/0x51。"));
 
-        return new DecodedModule(information, measurements, thresholds, alarms, status, registers, diagnostics);
+        return new DecodedModule(
+            information,
+            measurements,
+            thresholds,
+            alarms,
+            status,
+            registers,
+            diagnostics,
+            protocol,
+            fields,
+            remoteModule);
     }
 
     private static ModuleInformation DecodeInformation(byte[] a0)
     {
         var diagnosticType = a0[92];
+        var isCable = (a0[8] & 0x0C) != 0;
         return new ModuleInformation(
-            LookupIdentifier(a0[0]),
-            LookupConnector(a0[2]),
+            Sff8024CodeTables.LookupIdentifier(a0[0]),
+            Sff8024CodeTables.LookupConnector(a0[2]),
             ReadAscii(a0, 20, 16),
             $"{a0[37]:X2}-{a0[38]:X2}-{a0[39]:X2}",
             ReadAscii(a0, 40, 16),
             ReadAscii(a0, 56, 4),
             ReadAscii(a0, 68, 16),
             FormatDateCode(a0),
-            BinaryPrimitives.ReadUInt16BigEndian(a0.AsSpan(60, 2)),
+            isCable ? null : BinaryPrimitives.ReadUInt16BigEndian(a0.AsSpan(60, 2)),
             DecodeSignalingRate(a0),
-            LookupEncoding(a0[11]),
+            Sff8024CodeTables.LookupEncoding(a0[11]),
             LookupCompliance(a0[94]),
             (diagnosticType & 0x40) != 0,
             (diagnosticType & 0x20) != 0,
@@ -281,12 +306,17 @@ public sealed class Sff8472Protocol : IOpticalModuleProtocol
         var result = new List<RegisterValue>();
         var a0 = dump.FindRegion(A0RegionId)?.Data;
         var externallyCalibrated = a0 is { Length: > 92 } && (a0[92] & 0x10) != 0;
+        var timingPage = dump.FindRegion(A2Page03RegionId)?.Data;
+        var timingFormat = timingPage is { Length: >= 2 }
+            ? BinaryPrimitives.ReadUInt16BigEndian(timingPage.AsSpan(0, 2))
+            : (ushort)0;
         foreach (var region in dump.Regions)
         {
             for (var index = 0; index < region.Data.Length; index++)
             {
                 var offset = region.Offset + index;
-                var (name, description, access) = DescribeRegister(region.Id, offset, externallyCalibrated);
+                var (name, description, access) =
+                    DescribeRegister(region.Id, offset, externallyCalibrated, timingFormat);
                 result.Add(new RegisterValue(
                     region.Id,
                     region.DeviceAddress,
@@ -306,7 +336,8 @@ public sealed class Sff8472Protocol : IOpticalModuleProtocol
     private static (string Name, string Description, RegisterAccess Access) DescribeRegister(
         string regionId,
         int offset,
-        bool externallyCalibrated)
+        bool externallyCalibrated,
+        ushort timingFormat)
     {
         if (regionId == A0RegionId)
         {
@@ -349,11 +380,23 @@ public sealed class Sff8472Protocol : IOpticalModuleProtocol
             {
                 >= 0 and <= 55 => ("Alarm/Warning threshold", "告警或预警阈值", RegisterAccess.ReadOnly),
                 >= 56 and <= 91 when externallyCalibrated => ("External calibration", "外部校准常数", RegisterAccess.ReadOnly),
-                >= 56 and <= 65 => ("Enhanced advertisement", "增强控制、状态和信号完整性能力声明", RegisterAccess.ReadOnly),
+                56 => ("Enhanced Control Adv 1", "RS 引脚忽略及 TX Squelch 能力", RegisterAccess.ReadOnly),
+                57 => ("Enhanced Control Adv 2", "RX Squelch 能力", RegisterAccess.ReadOnly),
+                58 => ("Enhanced Flag Adv", "TX 自适应输入 EQ 失败标志能力", RegisterAccess.ReadOnly),
+                59 => ("Reserved", "增强状态声明保留", RegisterAccess.Reserved),
+                60 => ("TX EQ Capabilities", "TX 输入 EQ 存储、冻结、自适应和手动控制能力", RegisterAccess.ReadOnly),
+                61 => ("TX EQ Settling Time", "自适应 TX EQ 最大收敛时间，LSB=100 ms", RegisterAccess.ReadOnly),
+                62 => ("RX EQ Capabilities", "RX 输出 EQ 类型、游标和幅度控制能力", RegisterAccess.ReadOnly),
+                63 => ("Amplitude/TX EQ Limits", "RX 幅度代码能力及最大 TX 输入 EQ", RegisterAccess.ReadOnly),
+                64 => ("RX EQ Limits", "最大 RX Post/Pre-cursor 控制值", RegisterAccess.ReadOnly),
+                65 => ("Reserved", "增强信号完整性能力保留", RegisterAccess.Reserved),
                 66 => ("Max power consumption", "最大功耗，LSB 0.1 W", RegisterAccess.ReadOnly),
                 67 => ("Secondary compliance", "辅助扩展规范兼容代码", RegisterAccess.ReadOnly),
                 >= 68 and <= 70 => ("Reserved", "增强功能保留", RegisterAccess.Reserved),
-                >= 71 and <= 74 => ("Enhanced control", "增强均衡、幅度、速率和 Squelch 控制", RegisterAccess.ReadWrite),
+                71 => ("TX EQ Adaptation Control", "TX EQ Recall/Store/Freeze/Enable", RegisterAccess.ReadWrite),
+                72 => ("RX Enhanced EQ Control", "Pre/Post-cursor 和增强 EQ 覆盖", RegisterAccess.ReadWrite),
+                73 => ("RX Amplitude/RS Control", "输出幅度与 RS0/RS1 引脚忽略", RegisterAccess.ReadWrite),
+                74 => ("RX/TX Squelch Control", "强制 Squelch、禁用及 TX 方法选择", RegisterAccess.ReadWrite),
                 >= 75 and <= 94 => ("Reserved", "增强功能保留", RegisterAccess.Reserved),
                 95 => ("CC_DMI", "诊断字段校验", RegisterAccess.ReadOnly),
                 >= 96 and <= 105 => ("Real-time diagnostic", "实时诊断值", RegisterAccess.ReadOnly),
@@ -382,7 +425,7 @@ public sealed class Sff8472Protocol : IOpticalModuleProtocol
         return regionId switch
         {
             A2Page02RegionId => DescribePage02Register(offset),
-            A2Page03RegionId => DescribePage03Register(offset),
+            A2Page03RegionId => DescribePage03Register(offset, timingFormat),
             RemotePage20RegionId => ("Remote A0h lower", "远端模块 A0h 字节 0-127 的镜像", RegisterAccess.ReadOnly),
             RemotePage21RegionId => ("Remote A0h upper", "远端模块 A0h 字节 128-255 的镜像", RegisterAccess.ReadOnly),
             RemotePage22RegionId => ("Remote A2h lower", "远端模块 A2h 字节 0-127 的镜像", RegisterAccess.ReadOnly),
@@ -397,48 +440,97 @@ public sealed class Sff8472Protocol : IOpticalModuleProtocol
     private static (string Name, string Description, RegisterAccess Access) DescribePage02Register(int offset) =>
         offset switch
         {
-            128 => ("Tunability advertisement", "SFF-8690 可调谐能力声明", RegisterAccess.ReadOnly),
-            129 => ("RDT/RPM advertisement", "SFF-8472 RDT/RPM 能力声明", RegisterAccess.ReadOnly),
-            >= 130 and <= 131 => ("RDT control", "接收判决门限控制/当前值", RegisterAccess.ReadWrite),
-            >= 132 and <= 141 => ("Tunable capabilities", "SFF-8690 模块能力声明", RegisterAccess.ReadOnly),
+            128 => ("Tunability Advertisement", "SFF-8690 可调谐、自调谐和 TX Dither 能力", RegisterAccess.ReadOnly),
+            129 => ("RDT/RPM Advertisement", "RDT 行为、当前值可读及 RPM 能力", RegisterAccess.ReadOnly),
+            130 => ("RDT Mode", "0=手动，1=自动模块控制环", RegisterAccess.ReadWrite),
+            131 => ("RDT Value", "有符号值；门限=50%+value/256×100%", RegisterAccess.ReadWrite),
+            >= 132 and <= 133 => ("LFL1", "SFF-8690 激光器首频率 THz 部分", RegisterAccess.ReadOnly),
+            >= 134 and <= 135 => ("LFL2", "SFF-8690 激光器首频率 0.1 GHz 部分", RegisterAccess.ReadOnly),
+            >= 136 and <= 137 => ("LFH1", "SFF-8690 激光器末频率 THz 部分", RegisterAccess.ReadOnly),
+            >= 138 and <= 139 => ("LFH2", "SFF-8690 激光器末频率 0.1 GHz 部分", RegisterAccess.ReadOnly),
+            >= 140 and <= 141 => ("LGrid", "SFF-8690 最小网格间隔，signed 0.1 GHz", RegisterAccess.ReadOnly),
             >= 142 and <= 143 => ("Reserved", "SFF-8690 保留", RegisterAccess.Reserved),
-            >= 144 and <= 147 => ("Channel tuning", "SFF-8690 频率/波长控制", RegisterAccess.ReadWrite),
+            >= 144 and <= 145 => ("Channel Number", "SFF-8690 通道号，两字节原子写入", RegisterAccess.ReadWrite),
+            >= 146 and <= 147 => ("Wavelength Setpoint", "SFF-8690 波长设定，LSB=0.05 nm", RegisterAccess.ReadWrite),
             >= 148 and <= 150 => ("Reserved", "SFF-8690 保留", RegisterAccess.Reserved),
-            151 => ("Module TX control", "SFF-8690 模块发射控制", RegisterAccess.ReadWrite),
-            >= 152 and <= 155 => ("Wavelength error", "SFF-8690 频率或波长误差", RegisterAccess.ReadOnly),
+            151 => ("Tunable TX Control", "自调谐重启/使能及 TX Dither 控制", RegisterAccess.ReadWrite),
+            >= 152 and <= 153 => ("Frequency Error", "signed，LSB=0.1 GHz", RegisterAccess.ReadOnly),
+            >= 154 and <= 155 => ("Wavelength Error", "signed，LSB=0.005 nm", RegisterAccess.ReadOnly),
             >= 156 and <= 167 => ("Reserved", "SFF-8690 可调谐区保留", RegisterAccess.Reserved),
-            168 => ("Tunable status", "SFF-8690 当前状态", RegisterAccess.ReadOnly),
+            168 => ("Tunable Current Status", "自调谐、TEC 故障、波长失锁和 TX Tune", RegisterAccess.ReadOnly),
             >= 169 and <= 171 => ("Reserved", "SFF-8690 附加状态保留", RegisterAccess.Reserved),
-            172 => ("Tunable latched status", "SFF-8690 锁存状态", RegisterAccess.ReadOnly),
+            172 => ("Tunable Latched Status", "SFF-8690 清读锁存状态", RegisterAccess.ReadOnly),
             173 => ("Reserved", "SFF-8690 附加锁存状态保留", RegisterAccess.Reserved),
-            >= 174 and <= 175 => ("RPM latched status", "远端性能监控清读锁存状态", RegisterAccess.ReadOnly),
+            174 => ("RPM Latched Status 1", "用户数据及帧/Hamming 错误锁存状态", RegisterAccess.ReadOnly),
+            175 => ("RPM Latched Status 2", "安全空闲、ACK/NACK 锁存状态", RegisterAccess.ReadOnly),
             >= 176 and <= 191 => ("Reserved", "SFF-8472 保留", RegisterAccess.Reserved),
-            192 => ("RPM status/reset", "RPM 状态；写 A5h 可复位错误计数器", RegisterAccess.ReadWrite),
-            >= 193 and <= 197 => ("RPM debug", "最近接收的 RPM 消息调试数据", RegisterAccess.ReadOnly),
-            >= 198 and <= 207 => ("RPM error counters", "RPM 帧错误计数器", RegisterAccess.ReadOnly),
-            >= 208 and <= 210 => ("RPM remote command", "发送远端内存控制消息", RegisterAccess.ReadWrite),
-            211 => ("RPM TX modulation index", "RPM 发射使能与调制指数", RegisterAccess.ReadWrite),
-            >= 212 and <= 219 => ("RPM control/security", "RPM 控制与安全设置", RegisterAccess.ReadWrite),
+            192 => ("RPM Status/Counter Reset", "RPM 接收锁定状态；写 A5h 复位错误计数器", RegisterAccess.ReadWrite),
+            >= 193 and <= 195 => ("Most Recent RPM MSG", "最近接收的 24-bit MSG", RegisterAccess.ReadOnly),
+            >= 196 and <= 197 => ("Most Recent RPM TOM", "最近接收的 11-bit TOM", RegisterAccess.ReadOnly),
+            >= 198 and <= 199 => ("RPM Frame LOL Count", "16-bit 帧失锁事件计数器", RegisterAccess.ReadOnly),
+            >= 200 and <= 203 => ("RPM Frame Count", "Big Endian 32-bit 总帧计数器", RegisterAccess.ReadOnly),
+            >= 204 and <= 205 => ("RPM TOM Error Count", "16-bit TOM Hamming 错误计数器", RegisterAccess.ReadOnly),
+            >= 206 and <= 207 => ("RPM MSG Error Count", "16-bit MSG Hamming 错误计数器", RegisterAccess.ReadOnly),
+            >= 208 and <= 210 => ("RPM Remote Command", "24-bit TOM=2A0h 控制消息；写 byte 210 触发", RegisterAccess.ReadWrite),
+            211 => ("RPM TX Modulation Index", "0=关闭；10-100 对应 1.0%-10.0%", RegisterAccess.ReadWrite),
+            212 => ("RPM TX Control/State", "TX 状态、远端请求及 TX RPM 使能", RegisterAccess.ReadWrite),
+            213 => ("RPM RX Control/State", "RX 状态及 RX RPM 使能", RegisterAccess.ReadWrite),
+            214 => ("RPM Data Groups", "选择周期发送的内存组", RegisterAccess.ReadWrite),
+            215 => ("Reserved", "厂商页面发送选择保留", RegisterAccess.Reserved),
+            216 => ("RPM TX Security", "限制通过 RPM 发送的内存组", RegisterAccess.ReadWrite),
+            217 => ("RPM Global TX Security", "全局禁止发送 RPM 数据", RegisterAccess.ReadWrite),
+            218 => ("RPM RX Write Protection", "远端写保护控制", RegisterAccess.ReadWrite),
+            219 => ("Reserved", "RPM 安全配置保留", RegisterAccess.Reserved),
             >= 220 and <= 239 => ("Reserved", "SFF-8472 保留", RegisterAccess.Reserved),
             >= 240 and <= 247 => ("RPM TX user data", "写入远端性能监控用户数据", RegisterAccess.ReadWrite),
             >= 248 and <= 255 => ("RPM RX user data", "接收的远端性能监控用户数据", RegisterAccess.ReadOnly),
             _ => ("Page 02h", "RDT/RPM 或 SFF-8690 数据", RegisterAccess.ReadOnly)
         };
 
-    private static (string Name, string Description, RegisterAccess Access) DescribePage03Register(int offset) =>
-        offset switch
+    private static (string Name, string Description, RegisterAccess Access) DescribePage03Register(
+        int offset,
+        ushort formatId)
+    {
+        if (formatId == 0x100B && offset >= 150)
+        {
+            return offset switch
+            {
+                >= 150 and <= 153 => ("Calibration Inaccuracy", "回环模块校准不确定度，unsigned q16.16 ns", RegisterAccess.ReadOnly),
+                154 => ("Reserved", "规范值 00h", RegisterAccess.Reserved),
+                >= 155 and <= 158 => ("Tx_to_Rx Delay", "回环 TX 到 RX 时延，unsigned q16.16 ns", RegisterAccess.ReadOnly),
+                159 => ("Reserved", "规范值 00h", RegisterAccess.Reserved),
+                >= 160 and <= 163 => ("Tx_to_Mon Delay", "回环 TX 到 MON 时延，unsigned q16.16 ns", RegisterAccess.ReadOnly),
+                164 => ("Reserved", "规范值 00h", RegisterAccess.Reserved),
+                >= 165 and <= 168 => ("Rx_to_Mon Delay", "回环 RX 到 MON 时延，unsigned q16.16 ns", RegisterAccess.ReadOnly),
+                >= 169 and <= 254 => ("Reserved", "回环校准格式保留，规范值 00h", RegisterAccess.Reserved),
+                255 => ("CC_CALIB", "字节 128-254 校验码", RegisterAccess.ReadOnly),
+                _ => ("Page 03h", "高精度时延校准", RegisterAccess.ReadOnly)
+            };
+        }
+
+        return offset switch
         {
             >= 128 and <= 129 => ("Format ID", "CA1Bh=光模块，100Bh=回环模块", RegisterAccess.ReadOnly),
             130 => ("Calibration version", "高精度时延校准格式版本", RegisterAccess.ReadOnly),
-            >= 131 and <= 133 => ("Calibration date", "校准日期", RegisterAccess.ReadOnly),
-            >= 134 and <= 139 => ("Calibration unique ID", "校准唯一标识 CUI", RegisterAccess.ReadOnly),
+            >= 131 and <= 133 => ("Calibration Date", "压缩位域：年、月、日、同日序号", RegisterAccess.ReadOnly),
+            >= 134 and <= 136 => ("Calibration OUI/CID", "校准责任组织 IEEE OUI/CID", RegisterAccess.ReadOnly),
+            >= 137 and <= 139 => ("Calibration OSI", "校准责任组织内部标识", RegisterAccess.ReadOnly),
             140 => ("Stratum", "校准链路层级", RegisterAccess.ReadOnly),
-            >= 141 and <= 149 => ("Common header", "高精度时延公共头", RegisterAccess.ReadOnly),
-            >= 150 and <= 186 => ("Timing calibration", "光模块或回环模块时延校准参数", RegisterAccess.ReadOnly),
+            >= 141 and <= 149 => ("Reserved", "公共头保留，规范值 00h", RegisterAccess.Reserved),
+            150 => ("Nb_Lanes / Calibration Inaccuracy", "格式相关字段；光模块为通道数", RegisterAccess.ReadOnly),
+            151 => ("Op_Mode_Id / Calibration Inaccuracy", "格式相关字段；光模块为工作模式 ID", RegisterAccess.ReadOnly),
+            >= 152 and <= 166 => ("RX Power Delay Coefficients", "光模块 Rx_Pwr_Dly(0-4)，signed q8.16", RegisterAccess.ReadOnly),
+            >= 167 and <= 168 => ("T_Detune_Offset", "温度相关波长偏移，signed q8.8", RegisterAccess.ReadOnly),
+            >= 169 and <= 170 => ("T_Detune_Slope", "温度相关波长斜率，signed q8.8", RegisterAccess.ReadOnly),
+            >= 171 and <= 174 => ("Delta_Rx_Max", "RX 最大 3σ 时延偏差，unsigned q16.16 ns", RegisterAccess.ReadOnly),
+            >= 175 and <= 178 => ("Delta_Tx_Max", "TX 最大 3σ 时延偏差，unsigned q16.16 ns", RegisterAccess.ReadOnly),
+            >= 179 and <= 182 => ("Avg_Rx_Lane1", "RX 平均时延，unsigned q16.16 ns", RegisterAccess.ReadOnly),
+            >= 183 and <= 186 => ("Avg_Tx_Lane1", "TX 平均时延，unsigned q16.16 ns", RegisterAccess.ReadOnly),
             >= 187 and <= 254 => ("Reserved", "高精度时延页保留", RegisterAccess.Reserved),
             255 => ("CC_CALIB", "字节 128-254 校验码", RegisterAccess.ReadOnly),
             _ => ("Page 03h", "高精度时延校准", RegisterAccess.ReadOnly)
         };
+    }
 
     private static byte[] RequireRegion(ModuleDump dump, string id, int length)
     {
@@ -551,40 +643,6 @@ public sealed class Sff8472Protocol : IOpticalModuleProtocol
 
         return set ? "是" : "否";
     }
-
-    private static string LookupIdentifier(byte value) => value switch
-    {
-        0x03 => "SFP / SFP+ / SFP28",
-        0x0B => "DWDM-SFP/SFP+",
-        0x1A => "SFP-DD",
-        0x20 => "SFP+ (CMIS)",
-        _ => $"未知 (0x{value:X2})"
-    };
-
-    private static string LookupConnector(byte value) => value switch
-    {
-        0x00 => "未指定",
-        0x01 => "SC",
-        0x07 => "LC",
-        0x21 => "铜缆尾纤",
-        0x22 => "RJ45",
-        0x23 => "无可分离连接器",
-        _ => $"代码 0x{value:X2}"
-    };
-
-    private static string LookupEncoding(byte value) => value switch
-    {
-        0x00 => "未指定",
-        0x01 => "8B/10B",
-        0x02 => "4B/5B",
-        0x03 => "NRZ",
-        0x05 => "SONET Scrambled",
-        0x06 => "64B/66B",
-        0x07 => "Manchester",
-        0x08 => "256B/257B",
-        0x09 => "PAM4",
-        _ => $"代码 0x{value:X2}"
-    };
 
     private static string LookupCompliance(byte value) => value switch
     {

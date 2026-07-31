@@ -11,7 +11,7 @@
         Loaded="Window_Loaded">
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="72" />
+            <RowDefinition Height="82" />
             <RowDefinition Height="*" />
             <RowDefinition Height="34" />
         </Grid.RowDefinitions>
@@ -28,10 +28,29 @@
                 </Border>
                 <StackPanel Grid.Column="1" Margin="12,0" VerticalAlignment="Center">
                     <TextBlock Text="OptiDiag" FontSize="22" FontWeight="SemiBold" />
-                    <TextBlock Text="光模块固件调试 · SFF-8472 Rev 12.5a · 软件模拟模式"
+                    <TextBlock Text="{Binding ProtocolDisplay, StringFormat=光模块固件调试 · {0}}"
                                Foreground="{StaticResource MutedTextBrush}" FontSize="12" />
                 </StackPanel>
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="来源" Foreground="{StaticResource MutedTextBrush}" VerticalAlignment="Center" Margin="4" />
+                    <ComboBox Width="205"
+                              ItemsSource="{Binding DataSources}"
+                              DisplayMemberPath="DisplayName"
+                              SelectedItem="{Binding SelectedDataSource, Mode=OneWay}"
+                              SelectionChanged="DataSourceComboBox_SelectionChanged"
+                              ToolTip="{Binding SelectedDataSource.Description}" />
+                    <CheckBox Content="模拟 SFF-8690"
+                              IsChecked="{Binding SimulateSff8690, Mode=OneWay}"
+                              IsEnabled="{Binding IsSimulatorSelected}"
+                              VerticalAlignment="Center"
+                              Click="SimulationSff8690CheckBox_Click"
+                              ToolTip="勾选后模拟一个明确声明 SFF-8690 Rev 1.5 的可调谐模块" />
+                    <CheckBox Content="模拟 RPM 远端"
+                              IsChecked="{Binding SimulateRemotePerformanceMonitoring, Mode=OneWay}"
+                              IsEnabled="{Binding IsSimulatorSelected}"
+                              VerticalAlignment="Center"
+                              Click="SimulationRemotePerformanceMonitoringCheckBox_Click"
+                              ToolTip="勾选后采集 Page 20h-27h，并把标准映射重组为远端第二模块" />
                     <TextBlock Text="周期" Foreground="{StaticResource MutedTextBrush}" VerticalAlignment="Center" Margin="4" />
                     <ComboBox Width="72" SelectedIndex="0" SelectionChanged="PollingIntervalComboBox_SelectionChanged">
                         <ComboBoxItem Content="1 秒" Tag="1" />
@@ -183,6 +202,100 @@
                 </Grid>
             </TabItem>
 
+            <TabItem Header="协议解析">
+                <Grid Margin="2,10">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <WrapPanel>
+                        <Border Style="{StaticResource Card}" Width="275">
+                            <StackPanel>
+                                <TextBlock Text="基础协议（自动检测）" Foreground="{StaticResource MutedTextBrush}" />
+                                <TextBlock Text="{Binding ProtocolDisplay}" FontSize="18" Foreground="{StaticResource AccentBrush}" />
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource Card}" Width="300">
+                            <StackPanel>
+                                <TextBlock Text="扩展协议" Foreground="{StaticResource MutedTextBrush}" />
+                                <TextBlock Text="{Binding ProtocolExtensionDisplay}" FontSize="18" />
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource Card}" Width="610">
+                            <StackPanel>
+                                <TextBlock Text="检测依据" Foreground="{StaticResource MutedTextBrush}" />
+                                <TextBlock Text="{Binding ProtocolDetectionEvidence}" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+                    </WrapPanel>
+                    <TabControl Grid.Row="1" Margin="3,8,3,0">
+                        <TabItem Header="本地模块完整字段">
+                            <DataGrid ItemsSource="{Binding DecodedFields}">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="类别" Binding="{Binding Category}" Width="180" />
+                                    <DataGridTextColumn Header="字段" Binding="{Binding Name}" Width="230" />
+                                    <DataGridTextColumn Header="解析值" Binding="{Binding Value}" Width="230" />
+                                    <DataGridTextColumn Header="来源" Binding="{Binding SourceRegister}" Width="155" />
+                                    <DataGridCheckBoxColumn Header="可写" Binding="{Binding IsWritable}" Width="65" />
+                                    <DataGridTextColumn Header="说明 / 公式" Binding="{Binding Description}" Width="*" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </TabItem>
+                        <TabItem Header="RPM 远端第二模块">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <WrapPanel>
+                                    <Border Style="{StaticResource Card}" Width="240">
+                                        <StackPanel>
+                                            <TextBlock Text="远端厂商" Foreground="{StaticResource MutedTextBrush}" />
+                                            <TextBlock Text="{Binding RemoteInformation.VendorName, FallbackValue=未检测到远端模块}" FontSize="17" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Style="{StaticResource Card}" Width="260">
+                                        <StackPanel>
+                                            <TextBlock Text="远端料号" Foreground="{StaticResource MutedTextBrush}" />
+                                            <TextBlock Text="{Binding RemoteInformation.PartNumber, FallbackValue=--}" FontSize="17" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Style="{StaticResource Card}" Width="270">
+                                        <StackPanel>
+                                            <TextBlock Text="远端序列号" Foreground="{StaticResource MutedTextBrush}" />
+                                            <TextBlock Text="{Binding RemoteInformation.SerialNumber, FallbackValue=--}" FontSize="17" />
+                                        </StackPanel>
+                                    </Border>
+                                </WrapPanel>
+                                <ItemsControl Grid.Row="1" ItemsSource="{Binding RemoteMeasurements}">
+                                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Style="{StaticResource Card}" Width="205">
+                                                <StackPanel>
+                                                    <TextBlock Text="{Binding Name}" Foreground="{StaticResource MutedTextBrush}" />
+                                                    <TextBlock Text="{Binding FormattedValue}" FontSize="18" />
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <DataGrid Grid.Row="2" ItemsSource="{Binding RemoteFields}" Margin="4,6,4,0">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="类别" Binding="{Binding Category}" Width="180" />
+                                        <DataGridTextColumn Header="字段" Binding="{Binding Name}" Width="230" />
+                                        <DataGridTextColumn Header="解析值" Binding="{Binding Value}" Width="230" />
+                                        <DataGridTextColumn Header="来源" Binding="{Binding SourceRegister}" Width="155" />
+                                        <DataGridTextColumn Header="说明 / 公式" Binding="{Binding Description}" Width="*" />
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </Grid>
+                        </TabItem>
+                    </TabControl>
+                </Grid>
+            </TabItem>
+
             <TabItem Header="原始寄存器">
                 <Grid Margin="2,10">
                     <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
@@ -295,7 +408,7 @@
                 <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                 <TextBlock Text="{Binding ConnectionStatus}" Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" />
                 <TextBlock Grid.Column="1" Text="{Binding StatusMessage}" Foreground="{StaticResource MutedTextBrush}" VerticalAlignment="Center" Margin="18,0" TextTrimming="CharacterEllipsis" />
-                <TextBlock Grid.Column="2" Text="模拟器 · 0x50 / 0x51 · 7-bit" Foreground="{StaticResource MutedTextBrush}" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="2" Text="{Binding DataSourceDisplay}" Foreground="{StaticResource MutedTextBrush}" VerticalAlignment="Center" />
             </Grid>
         </Border>
     </Grid>

@@ -66,6 +66,32 @@ public partial class MainWindow : Window
         viewModel.PollingIntervalSeconds = seconds;
     }
 
+    private async void DataSourceComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (DataContext is MainWindowViewModel viewModel
+            && sender is ComboBox { SelectedItem: DataSourceOption option })
+        {
+            await ExecuteAsync(() => viewModel.SelectDataSourceAsync(option));
+        }
+    }
+
+    private async void SimulationSff8690CheckBox_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is CheckBox checkBox)
+        {
+            await ExecuteAsync(() => ViewModel.SetSimulationSff8690Async(checkBox.IsChecked == true));
+        }
+    }
+
+    private async void SimulationRemotePerformanceMonitoringCheckBox_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is CheckBox checkBox)
+        {
+            await ExecuteAsync(
+                () => ViewModel.SetSimulationRemotePerformanceMonitoringAsync(checkBox.IsChecked == true));
+        }
+    }
+
     private async void SaveDumpButton_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new SaveFileDialog

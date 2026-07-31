@@ -3,20 +3,29 @@ using OptiDiag.Protocols.Abstractions;
 
 namespace OptiDiag.Application;
 
-public sealed record SessionSnapshot(ModuleDump Dump, DecodedModule Module, IReadOnlyList<string> CaptureWarnings);
+public sealed record SessionSnapshot(
+    ModuleDump Dump,
+    DecodedModule Module,
+    IReadOnlyList<string> CaptureWarnings,
+    ProtocolDetectionResult Detection);
 
 public sealed class ModuleSession : IAsyncDisposable
 {
     private readonly II2cAdapter _adapter;
     private readonly IOpticalModuleProtocol _protocol;
     private readonly ModuleMemoryService _memory;
+    private readonly ProtocolDetectionService _detector;
     private bool _disposed;
 
-    public ModuleSession(II2cAdapter adapter, IOpticalModuleProtocol protocol)
+    public ModuleSession(
+        II2cAdapter adapter,
+        IOpticalModuleProtocol protocol,
+        ProtocolDetectionService? detector = null)
     {
         _adapter = adapter;
         _protocol = protocol;
         _memory = new ModuleMemoryService(adapter);
+        _detector = detector ?? new ProtocolDetectionService();
         _adapter.TransferCompleted += OnTransferCompleted;
     }
 
@@ -45,13 +54,25 @@ public sealed class ModuleSession : IAsyncDisposable
             throw new InvalidOperationException("请先连接模块会话。");
         }
 
+        var detection = await _detector.DetectAsync(_adapter, cancellationToken).ConfigureAwait(false);
+        if (!detection.IsSupportedBy(_protocol.Id))
+        {
+            throw new NotSupportedException(
+                $"自动检测到 {detection.ProtocolName}，当前会话加载的是 {_protocol.DisplayName}。"
+                + " 请安装对应协议模块后再读取。");
+        }
+
         var capture = await _memory.CaptureAsync(_protocol, cancellationToken).ConfigureAwait(false);
         if (!_protocol.CanDecode(capture.Dump))
         {
             throw new InvalidDataException($"当前数据无法按 {_protocol.DisplayName} 解码。");
         }
 
-        var snapshot = new SessionSnapshot(capture.Dump, _protocol.Decode(capture.Dump), capture.Warnings);
+        var snapshot = new SessionSnapshot(
+            capture.Dump,
+            _protocol.Decode(capture.Dump),
+            capture.Warnings,
+            detection);
         Latest = snapshot;
         SnapshotUpdated?.Invoke(this, snapshot);
         return snapshot;

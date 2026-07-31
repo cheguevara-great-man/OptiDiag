@@ -21,6 +21,7 @@ public partial class App : System.Windows.Application
         _viewModel = new MainWindowViewModel(
             session,
             poller,
+            adapter,
             new DumpFileService(),
             new DumpComparisonService(),
             new CsvExportService());

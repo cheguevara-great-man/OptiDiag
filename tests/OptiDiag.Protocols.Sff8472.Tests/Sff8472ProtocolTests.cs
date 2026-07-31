@@ -149,6 +149,102 @@ public sealed class Sff8472ProtocolTests
         Assert.Equal(1920, decoded.Registers.Count);
     }
 
+    [Fact]
+    public void Sff8024Tables_CoverAllAssignedSff8472CodeRanges()
+    {
+        Assert.All(Enumerable.Range(0x00, 0x27), value =>
+            Assert.True(Sff8024CodeTables.Identifiers.ContainsKey((byte)value)));
+        Assert.All(Enumerable.Range(0x00, 0x09), value =>
+            Assert.True(Sff8024CodeTables.Encodings.ContainsKey((byte)value)));
+        Assert.All(Enumerable.Range(0x00, 0x4D), value =>
+            Assert.True(Sff8024CodeTables.ExtendedComplianceCodes.ContainsKey((byte)value)));
+
+        Assert.Equal("64B/66B", Sff8024CodeTables.LookupEncoding(0x06));
+        Assert.Equal("PAM4", Sff8024CodeTables.LookupEncoding(0x08));
+        Assert.Equal("LC", Sff8024CodeTables.LookupConnector(0x07));
+        Assert.Contains("厂商自定义", Sff8024CodeTables.LookupIdentifier(0x80));
+        Assert.Contains("保留兼容码", Sff8024CodeTables.LookupExtendedCompliance(0x4D));
+    }
+
+    [Fact]
+    public async Task SemanticDecode_CoversEnhancedFeaturesAndHighAccuracyTiming()
+    {
+        var (dump, protocol) = await CaptureAsync();
+
+        var decoded = protocol.Decode(dump);
+        var fields = decoded.Fields!;
+
+        Assert.Contains(fields, x => x.Name == "TX Squelch Method" && x.SourceRegister == "A2h.56.3-2");
+        Assert.Contains(fields, x => x.Name == "RX Force Squelch" && x.SourceRegister == "A2h.74.5" && x.IsWritable);
+        Assert.Contains(fields, x => x.Name == "Calibration Date" && x.Value == "2026-07-30 / #1");
+        Assert.Contains(fields, x => x.Name == "Average RX Lane 1" && x.Value == "25.25 ns");
+        Assert.Contains(fields, x => x.Name == "Corrected Average RX Delay");
+        Assert.Contains(fields, x => x.Name == "Temperature Wavelength Detune");
+    }
+
+    [Fact]
+    public async Task Sff8690Simulator_IsClearlyDetectedAndFullyDecoded()
+    {
+        await using var adapter = new Sff8472Simulator(enableSff8690: true);
+        var protocol = new Sff8472Protocol();
+        var memory = new ModuleMemoryService(adapter);
+        await adapter.OpenAsync(CancellationToken.None);
+
+        var capture = await memory.CaptureAsync(protocol, CancellationToken.None);
+        var decoded = protocol.Decode(capture.Dump);
+        var extension = Assert.Single(decoded.Protocol!.Extensions);
+
+        Assert.True(extension.IsPresent);
+        Assert.Equal("sff-8690", extension.Id);
+        Assert.Contains(decoded.Fields!, x => x.Name == "Laser First Frequency" && x.Value == "191.3000 THz");
+        Assert.Contains(decoded.Fields!, x => x.Name == "Minimum Grid Spacing" && x.Value == "50.0 GHz");
+        Assert.Contains(decoded.Fields!, x => x.Name == "Channel Number" && x.Value == "45" && x.IsWritable);
+        Assert.Contains(decoded.Fields!, x => x.Name == "Frequency Error" && x.Value == "-0.2 GHz");
+        Assert.Contains(decoded.Alarms, x => x.Id == "tunable-new-channel" && x.IsActive);
+    }
+
+    [Fact]
+    public async Task Page02_RdtRpmAndRemoteModule_AreSemanticallyDecoded()
+    {
+        await using var adapter = new Sff8472Simulator(enableRemotePerformanceMonitoring: true);
+        var protocol = new Sff8472Protocol();
+        var memory = new ModuleMemoryService(adapter);
+        await adapter.OpenAsync(CancellationToken.None);
+
+        var capture = await memory.CaptureAsync(protocol, CancellationToken.None);
+        var decoded = protocol.Decode(capture.Dump);
+
+        Assert.Contains(decoded.Fields!, x => x.Name == "Receiver Decision Threshold");
+        Assert.Contains(decoded.Fields!, x => x.Name == "Frame Loss-of-Lock Count");
+        Assert.Contains(decoded.Fields!, x => x.Name == "Remote Control MSG" && x.IsWritable);
+        Assert.Contains(decoded.Fields!, x => x.Name == "TX User Data" && x.IsWritable);
+        Assert.NotNull(decoded.RemoteModule);
+        Assert.Equal("OPTIDIAG LAB", decoded.RemoteModule.Information.VendorName);
+        Assert.Contains(decoded.RemoteModule.Fields!, x => x.Name == "Identifier");
+        Assert.Equal(5, decoded.RemoteModule.Measurements.Count);
+    }
+
+    [Fact]
+    public async Task Simulator_CanToggleRpmRemoteModuleAtRuntime()
+    {
+        await using var adapter = new Sff8472Simulator();
+        var protocol = new Sff8472Protocol();
+        var memory = new ModuleMemoryService(adapter);
+        await adapter.OpenAsync(CancellationToken.None);
+
+        var localOnly = await memory.CaptureAsync(protocol, CancellationToken.None);
+        adapter.SetRemotePerformanceMonitoringEnabled(true);
+        var withRemote = await memory.CaptureAsync(protocol, CancellationToken.None);
+        adapter.SetRemotePerformanceMonitoringEnabled(false);
+        var localAgain = await memory.CaptureAsync(protocol, CancellationToken.None);
+
+        Assert.Equal(6, localOnly.Dump.Regions.Count);
+        Assert.Equal(14, withRemote.Dump.Regions.Count);
+        Assert.NotNull(protocol.Decode(withRemote.Dump).RemoteModule);
+        Assert.Equal(6, localAgain.Dump.Regions.Count);
+        Assert.Null(protocol.Decode(localAgain.Dump).RemoteModule);
+    }
+
     private static async Task<(ModuleDump Dump, Sff8472Protocol Protocol)> CaptureAsync()
     {
         await using var adapter = new Sff8472Simulator();

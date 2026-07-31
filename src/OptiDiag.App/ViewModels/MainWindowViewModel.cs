@@ -5,6 +5,7 @@ using System.IO;
 using System.Windows.Data;
 using OptiDiag.Application;
 using OptiDiag.I2c.Abstractions;
+using OptiDiag.I2c.Simulator;
 using OptiDiag.Infrastructure;
 using OptiDiag.Protocols.Abstractions;
 
@@ -25,10 +26,16 @@ public sealed record TraceRow(I2cTraceEntry Entry)
     public string Result => Entry.Success ? "成功" : Entry.ErrorMessage ?? "失败";
 }
 
+public sealed record DataSourceOption(string Key, string DisplayName, bool IsAvailable, string Description)
+{
+    public override string ToString() => DisplayName;
+}
+
 public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 {
     private readonly ModuleSession _session;
     private readonly PollingEngine _poller;
+    private readonly Sff8472Simulator _simulator;
     private readonly DumpFileService _dumpFiles;
     private readonly DumpComparisonService _dumpComparer;
     private readonly CsvExportService _csvExporter;
@@ -36,6 +43,8 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     private readonly string _logPath;
     private SessionSnapshot? _latest;
     private ModuleInformation? _information;
+    private ModuleInformation? _remoteInformation;
+    private ProtocolIdentification? _protocolIdentification;
     private string _connectionStatus = "未连接";
     private string _statusMessage = "使用内置 SFF-8472 模拟模块，可直接开始调试。";
     private bool _isBusy;
@@ -45,19 +54,38 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     private RegisterValue? _selectedRegister;
     private int _pollingIntervalSeconds = 1;
     private IReadOnlyList<TrendSample> _trendSamples = [];
+    private DataSourceOption _selectedDataSource;
+    private bool _simulateSff8690;
+    private bool _simulateRemotePerformanceMonitoring;
 
     public MainWindowViewModel(
         ModuleSession session,
         PollingEngine poller,
+        Sff8472Simulator simulator,
         DumpFileService dumpFiles,
         DumpComparisonService dumpComparer,
         CsvExportService csvExporter)
     {
         _session = session;
         _poller = poller;
+        _simulator = simulator;
         _dumpFiles = dumpFiles;
         _dumpComparer = dumpComparer;
         _csvExporter = csvExporter;
+        DataSources =
+        [
+            new DataSourceOption(
+                "simulator",
+                "软件模拟模块",
+                true,
+                "内置 SFF-8472 模拟器，可选择是否包含 SFF-8690。"),
+            new DataSourceOption(
+                "hardware",
+                "真实 I²C 适配器（自动检测）",
+                false,
+                "协议自动检测已实现；需要具体 USB-I²C 设备型号后加载对应适配器。")
+        ];
+        _selectedDataSource = DataSources[0];
         _logPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "OptiDiag",
@@ -77,6 +105,9 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     public ObservableCollection<ThresholdRow> Thresholds { get; } = [];
     public ObservableCollection<AlarmFlag> Alarms { get; } = [];
     public ObservableCollection<StatusItem> StatusItems { get; } = [];
+    public ObservableCollection<DecodedField> DecodedFields { get; } = [];
+    public ObservableCollection<Measurement> RemoteMeasurements { get; } = [];
+    public ObservableCollection<DecodedField> RemoteFields { get; } = [];
     public ObservableCollection<RegisterValue> Registers { get; } = [];
     public ObservableCollection<string> Regions { get; } = [];
     public ObservableCollection<DecodeDiagnostic> Diagnostics { get; } = [];
@@ -86,10 +117,72 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
     public ICollectionView RegisterView { get; }
 
+    public IReadOnlyList<DataSourceOption> DataSources { get; }
+
     public ModuleInformation? Information
     {
         get => _information;
         private set => SetProperty(ref _information, value);
+    }
+
+    public ModuleInformation? RemoteInformation
+    {
+        get => _remoteInformation;
+        private set => SetProperty(ref _remoteInformation, value);
+    }
+
+    public ProtocolIdentification? ProtocolIdentification
+    {
+        get => _protocolIdentification;
+        private set
+        {
+            if (SetProperty(ref _protocolIdentification, value))
+            {
+                OnPropertyChanged(nameof(ProtocolDisplay));
+                OnPropertyChanged(nameof(ProtocolExtensionDisplay));
+                OnPropertyChanged(nameof(ProtocolDetectionEvidence));
+            }
+        }
+    }
+
+    public string ProtocolDisplay => ProtocolIdentification is null
+        ? "等待自动检测"
+        : $"{ProtocolIdentification.BaseProtocolName} · {ProtocolIdentification.Revision}";
+
+    public string ProtocolExtensionDisplay => ProtocolIdentification?.ExtensionSummary ?? "--";
+
+    public string ProtocolDetectionEvidence =>
+        _latest is null
+            ? "--"
+            : $"{_latest.Detection.Evidence} {_latest.Detection.Extensions.FirstOrDefault(x => x.IsPresent)?.Evidence}".Trim();
+
+    public DataSourceOption SelectedDataSource
+    {
+        get => _selectedDataSource;
+        private set
+        {
+            if (SetProperty(ref _selectedDataSource, value))
+            {
+                OnPropertyChanged(nameof(IsSimulatorSelected));
+                OnPropertyChanged(nameof(DataSourceDisplay));
+            }
+        }
+    }
+
+    public bool IsSimulatorSelected => SelectedDataSource.Key == "simulator";
+
+    public string DataSourceDisplay => SelectedDataSource.DisplayName;
+
+    public bool SimulateSff8690
+    {
+        get => _simulateSff8690;
+        private set => SetProperty(ref _simulateSff8690, value);
+    }
+
+    public bool SimulateRemotePerformanceMonitoring
+    {
+        get => _simulateRemotePerformanceMonitoring;
+        private set => SetProperty(ref _simulateRemotePerformanceMonitoring, value);
     }
 
     public string ConnectionStatus
@@ -175,8 +268,77 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
     public string DumpSummary { get; private set; } = "尚未进行 Dump 比较";
 
+    public async Task SelectDataSourceAsync(DataSourceOption option)
+    {
+        if (option == SelectedDataSource)
+        {
+            return;
+        }
+
+        if (IsConnected)
+        {
+            await DisconnectAsync().ConfigureAwait(true);
+        }
+
+        SelectedDataSource = option;
+        ClearDecodedData();
+        StatusMessage = option.IsAvailable
+            ? option.Description
+            : $"{option.Description} 当前不会误连到模拟器。";
+        AddLog("INFO", $"数据源切换为：{option.DisplayName}。{option.Description}");
+    }
+
+    public async Task SetSimulationSff8690Async(bool enabled)
+    {
+        if (SimulateSff8690 == enabled)
+        {
+            return;
+        }
+
+        await StopPollingAsync().ConfigureAwait(true);
+        _simulator.SetSff8690Enabled(enabled);
+        SimulateSff8690 = enabled;
+        StatusMessage = enabled
+            ? "模拟模块已启用 SFF-8690；自动检测应显示 8472 + 8690。"
+            : "模拟模块已切回纯 SFF-8472；SFF-8690 字段不会参与解码。";
+        AddLog("INFO", StatusMessage);
+        if (IsConnected)
+        {
+            await RefreshAsync().ConfigureAwait(true);
+            ConnectionStatus = $"已连接 · {_session.AdapterInfo.DisplayName}";
+        }
+    }
+
+    public async Task SetSimulationRemotePerformanceMonitoringAsync(bool enabled)
+    {
+        if (SimulateRemotePerformanceMonitoring == enabled)
+        {
+            return;
+        }
+
+        await StopPollingAsync().ConfigureAwait(true);
+        _simulator.SetRemotePerformanceMonitoringEnabled(enabled);
+        SimulateRemotePerformanceMonitoring = enabled;
+        StatusMessage = enabled
+            ? "模拟模块已启用 RPM；将采集 Page 20h-27h 并解码远端第二模块。"
+            : "模拟模块已关闭 RPM；远端 Page 20h-27h 不再采集。";
+        AddLog("INFO", StatusMessage);
+        if (IsConnected)
+        {
+            await RefreshAsync().ConfigureAwait(true);
+            ConnectionStatus = $"已连接 · {_session.AdapterInfo.DisplayName}";
+        }
+    }
+
     public async Task ConnectAsync()
     {
+        if (!SelectedDataSource.IsAvailable || !IsSimulatorSelected)
+        {
+            throw new InvalidOperationException(
+                "真实 I²C 数据源的软件入口和协议自动检测已经就绪，但尚未配置具体硬件适配器。"
+                + " 请提供 USB-I²C 设备型号、厂商 SDK/API 或通信协议。");
+        }
+
         await RunBusyAsync(async () =>
         {
             await _session.ConnectAsync().ConfigureAwait(true);
@@ -200,9 +362,15 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
     public async Task RefreshAsync()
     {
+        if (!IsSimulatorSelected)
+        {
+            StatusMessage = "当前选择真实 I²C 数据源，但尚未配置硬件适配器。";
+            return;
+        }
+
         if (!_session.IsConnected)
         {
-            StatusMessage = "请先连接模拟模块。";
+            StatusMessage = "请先连接所选数据源。";
             return;
         }
 
@@ -217,7 +385,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     {
         if (!_session.IsConnected)
         {
-            StatusMessage = "请先连接模拟模块。";
+            StatusMessage = "请先连接所选数据源。";
             return;
         }
 
@@ -301,12 +469,17 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     {
         _latest = snapshot;
         Information = snapshot.Module.Information;
+        ProtocolIdentification = snapshot.Module.Protocol;
         Replace(Measurements, snapshot.Module.Measurements);
         Replace(Thresholds, snapshot.Module.Thresholds);
         Replace(Alarms, snapshot.Module.Alarms);
         Replace(StatusItems, snapshot.Module.Status);
+        Replace(DecodedFields, snapshot.Module.Fields ?? []);
         Replace(Registers, snapshot.Module.Registers);
         Replace(Diagnostics, snapshot.Module.Diagnostics);
+        RemoteInformation = snapshot.Module.RemoteModule?.Information;
+        Replace(RemoteMeasurements, snapshot.Module.RemoteModule?.Measurements ?? []);
+        Replace(RemoteFields, snapshot.Module.RemoteModule?.Fields ?? []);
 
         var regionNames = snapshot.Dump.Regions.Select(x => x.Id).Distinct().OrderBy(x => x).ToArray();
         Regions.Clear();
@@ -324,11 +497,40 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         RegisterView.Refresh();
         OnPropertyChanged(nameof(SnapshotTime));
         OnPropertyChanged(nameof(ActiveAlarmCount));
-        StatusMessage = $"读取完成：{snapshot.Dump.Regions.Count} 个区域，{snapshot.Module.Registers.Count} 字节。";
+        OnPropertyChanged(nameof(ProtocolDetectionEvidence));
+        StatusMessage =
+            $"自动检测：{snapshot.Detection.ProtocolName}"
+            + (snapshot.Module.Protocol?.Extensions.Any(x => x.IsPresent) == true
+                ? $" + {snapshot.Module.Protocol.ExtensionSummary}"
+                : string.Empty)
+            + "；"
+            + $"{snapshot.Dump.Regions.Count} 个区域，{snapshot.Module.Registers.Count} 字节。";
         if (snapshot.CaptureWarnings.Count > 0)
         {
             StatusMessage += $" {snapshot.CaptureWarnings.Count} 个可选区域失败。";
         }
+    }
+
+    private void ClearDecodedData()
+    {
+        _latest = null;
+        Information = null;
+        RemoteInformation = null;
+        ProtocolIdentification = null;
+        Measurements.Clear();
+        RemoteMeasurements.Clear();
+        Thresholds.Clear();
+        Alarms.Clear();
+        StatusItems.Clear();
+        DecodedFields.Clear();
+        RemoteFields.Clear();
+        Registers.Clear();
+        Diagnostics.Clear();
+        Regions.Clear();
+        Regions.Add("全部");
+        OnPropertyChanged(nameof(SnapshotTime));
+        OnPropertyChanged(nameof(ActiveAlarmCount));
+        OnPropertyChanged(nameof(ProtocolDetectionEvidence));
     }
 
     private bool FilterRegister(object item)
