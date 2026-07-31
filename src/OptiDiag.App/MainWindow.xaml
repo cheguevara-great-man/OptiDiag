@@ -1,0 +1,302 @@
+<Window x:Class="OptiDiag.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:OptiDiag.App.Controls"
+        Title="OptiDiag 光模块固件调试上位机"
+        Width="1420"
+        Height="880"
+        MinWidth="1120"
+        MinHeight="700"
+        WindowStartupLocation="CenterScreen"
+        Loaded="Window_Loaded">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="72" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="34" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="#101A2B" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
+            <Grid Margin="18,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Border Width="46" Height="46" CornerRadius="9" Background="{StaticResource AccentDarkBrush}" VerticalAlignment="Center">
+                    <TextBlock Text="OD" FontSize="17" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+                <StackPanel Grid.Column="1" Margin="12,0" VerticalAlignment="Center">
+                    <TextBlock Text="OptiDiag" FontSize="22" FontWeight="SemiBold" />
+                    <TextBlock Text="光模块固件调试 · SFF-8472 Rev 12.5a · 软件模拟模式"
+                               Foreground="{StaticResource MutedTextBrush}" FontSize="12" />
+                </StackPanel>
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="周期" Foreground="{StaticResource MutedTextBrush}" VerticalAlignment="Center" Margin="4" />
+                    <ComboBox Width="72" SelectedIndex="0" SelectionChanged="PollingIntervalComboBox_SelectionChanged">
+                        <ComboBoxItem Content="1 秒" Tag="1" />
+                        <ComboBoxItem Content="2 秒" Tag="2" />
+                        <ComboBoxItem Content="5 秒" Tag="5" />
+                        <ComboBoxItem Content="10 秒" Tag="10" />
+                    </ComboBox>
+                    <Button Content="连接 / 断开" Style="{StaticResource PrimaryButton}" Click="ConnectButton_Click" />
+                    <Button Content="立即读取" Click="RefreshButton_Click" />
+                    <Button Content="周期读取" Click="PollingButton_Click" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <TabControl Grid.Row="1" Margin="14,10,14,8">
+            <TabItem Header="概览">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="2,10">
+                        <TextBlock Text="模块身份" FontSize="18" FontWeight="SemiBold" Margin="5,2,5,8" />
+                        <WrapPanel>
+                            <Border Style="{StaticResource Card}" Width="245">
+                                <StackPanel><TextBlock Text="厂商" Foreground="{StaticResource MutedTextBrush}" /><TextBlock Text="{Binding Information.VendorName, FallbackValue=--}" FontSize="18" /></StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource Card}" Width="245">
+                                <StackPanel><TextBlock Text="料号" Foreground="{StaticResource MutedTextBrush}" /><TextBlock Text="{Binding Information.PartNumber, FallbackValue=--}" FontSize="18" /></StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource Card}" Width="245">
+                                <StackPanel><TextBlock Text="序列号" Foreground="{StaticResource MutedTextBrush}" /><TextBlock Text="{Binding Information.SerialNumber, FallbackValue=--}" FontSize="18" /></StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource Card}" Width="245">
+                                <StackPanel><TextBlock Text="协议声明" Foreground="{StaticResource MutedTextBrush}" /><TextBlock Text="{Binding Information.Compliance, FallbackValue=--}" FontSize="18" /></StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource Card}" Width="245">
+                                <StackPanel><TextBlock Text="厂商 OUI" Foreground="{StaticResource MutedTextBrush}" /><TextBlock Text="{Binding Information.VendorOui, FallbackValue=--}" FontSize="18" /></StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource Card}" Width="245">
+                                <StackPanel><TextBlock Text="硬件版本" Foreground="{StaticResource MutedTextBrush}" /><TextBlock Text="{Binding Information.Revision, FallbackValue=--}" FontSize="18" /></StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource Card}" Width="245">
+                                <StackPanel><TextBlock Text="生产日期 / 批次" Foreground="{StaticResource MutedTextBrush}" /><TextBlock Text="{Binding Information.DateCode, FallbackValue=--}" FontSize="16" /></StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource Card}" Width="245">
+                                <StackPanel><TextBlock Text="线路编码" Foreground="{StaticResource MutedTextBrush}" /><TextBlock Text="{Binding Information.Encoding, FallbackValue=--}" FontSize="18" /></StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource Card}" Width="245">
+                                <StackPanel><TextBlock Text="类型 / 连接器" Foreground="{StaticResource MutedTextBrush}" /><TextBlock Text="{Binding Information.Identifier, FallbackValue=--}" FontSize="15" /><TextBlock Text="{Binding Information.Connector, FallbackValue=--}" Foreground="{StaticResource MutedTextBrush}" /></StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource Card}" Width="245">
+                                <StackPanel><TextBlock Text="波长" Foreground="{StaticResource MutedTextBrush}" /><TextBlock Text="{Binding Information.WavelengthNm, StringFormat={}{0:0} nm, FallbackValue=--}" FontSize="18" /></StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource Card}" Width="245">
+                                <StackPanel><TextBlock Text="标称信令速率" Foreground="{StaticResource MutedTextBrush}" /><TextBlock Text="{Binding Information.NominalSignalingRateMbd, StringFormat={}{0:0} MBd, FallbackValue=--}" FontSize="18" /></StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource Card}" Width="245">
+                                <StackPanel><TextBlock Text="最近采集" Foreground="{StaticResource MutedTextBrush}" /><TextBlock Text="{Binding SnapshotTime}" FontSize="15" /></StackPanel>
+                            </Border>
+                        </WrapPanel>
+
+                        <TextBlock Text="实时监控" FontSize="18" FontWeight="SemiBold" Margin="5,18,5,8" />
+                        <ItemsControl ItemsSource="{Binding Measurements}">
+                            <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Style="{StaticResource Card}" Width="245">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Name}" Foreground="{StaticResource MutedTextBrush}" />
+                                            <TextBlock Text="{Binding FormattedValue}" FontSize="24" FontWeight="SemiBold" Foreground="{StaticResource AccentBrush}" Margin="0,4" />
+                                            <TextBlock Text="{Binding SecondaryFormattedValue}" Foreground="{StaticResource AccentBrush}">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Style.Triggers><DataTrigger Binding="{Binding SecondaryFormattedValue}" Value="{x:Null}"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <TextBlock Text="{Binding RawValue, StringFormat=Raw 0x{0:X4}}" Foreground="{StaticResource MutedTextBrush}" FontFamily="Consolas" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <TextBlock Text="解码检查" FontSize="18" FontWeight="SemiBold" Margin="5,18,5,8" />
+                        <DataGrid ItemsSource="{Binding Diagnostics}" Height="170">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="级别" Binding="{Binding Severity}" Width="100" />
+                                <DataGridTextColumn Header="区域" Binding="{Binding RegionId}" Width="130" />
+                                <DataGridTextColumn Header="说明" Binding="{Binding Message}" Width="*" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="监控与曲线">
+                <Grid Margin="2,10">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                    <ItemsControl ItemsSource="{Binding Measurements}">
+                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><UniformGrid Rows="1" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Style="{StaticResource Card}">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Name}" Foreground="{StaticResource MutedTextBrush}" />
+                                        <TextBlock Text="{Binding FormattedValue}" FontSize="20" FontWeight="SemiBold" />
+                                        <TextBlock Text="{Binding SecondaryFormattedValue}" Foreground="{StaticResource AccentBrush}" />
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <controls:TrendChart Grid.Row="1" Samples="{Binding TrendSamples}" Margin="5,12,5,4" />
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="阈值">
+                <DataGrid ItemsSource="{Binding Thresholds}" Margin="2,10">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="监控量" Binding="{Binding Name}" Width="2*" />
+                        <DataGridTextColumn Header="单位" Binding="{Binding Unit}" Width="100" />
+                        <DataGridTextColumn Header="高告警" Binding="{Binding HighAlarm, StringFormat=0.####}" Width="*" />
+                        <DataGridTextColumn Header="高预警" Binding="{Binding HighWarning, StringFormat=0.####}" Width="*" />
+                        <DataGridTextColumn Header="低预警" Binding="{Binding LowWarning, StringFormat=0.####}" Width="*" />
+                        <DataGridTextColumn Header="低告警" Binding="{Binding LowAlarm, StringFormat=0.####}" Width="*" />
+                    </DataGrid.Columns>
+                </DataGrid>
+            </TabItem>
+
+            <TabItem Header="告警与状态">
+                <Grid Margin="2,10">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="3*" /><ColumnDefinition Width="2*" /></Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                    <TextBlock Text="告警 / 预警标志" FontSize="17" FontWeight="SemiBold" Margin="5" />
+                    <TextBlock Grid.Column="1" Text="模块状态" FontSize="17" FontWeight="SemiBold" Margin="15,5,5,5" />
+                    <DataGrid Grid.Row="1" ItemsSource="{Binding Alarms}" Margin="5">
+                        <DataGrid.Columns>
+                            <DataGridCheckBoxColumn Header="有效" Binding="{Binding IsActive}" Width="70" />
+                            <DataGridTextColumn Header="级别" Binding="{Binding Level}" Width="90" />
+                            <DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="*" />
+                            <DataGridTextColumn Header="来源" Binding="{Binding SourceRegister}" Width="110" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <DataGrid Grid.Row="1" Grid.Column="1" ItemsSource="{Binding StatusItems}" Margin="15,5,5,5">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="状态" Binding="{Binding Name}" Width="*" />
+                            <DataGridTextColumn Header="值" Binding="{Binding Value}" Width="100" />
+                            <DataGridTextColumn Header="来源" Binding="{Binding SourceRegister}" Width="110" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="原始寄存器">
+                <Grid Margin="2,10">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                    <DockPanel Margin="0,0,0,8">
+                        <TextBlock Text="区域" VerticalAlignment="Center" Margin="5" />
+                        <ComboBox Width="150" ItemsSource="{Binding Regions}" SelectedItem="{Binding SelectedRegion}" />
+                        <TextBlock Text="搜索" VerticalAlignment="Center" Margin="14,5,5,5" />
+                        <TextBox Width="260" Text="{Binding RegisterFilter, UpdateSourceTrigger=PropertyChanged}" ToolTip="地址、名称、值或说明" />
+                        <CheckBox Content="写操作解锁" IsChecked="{Binding WriteUnlocked}" VerticalAlignment="Center" Margin="20,4" />
+                    </DockPanel>
+                    <DataGrid Grid.Row="1" ItemsSource="{Binding RegisterView}" SelectedItem="{Binding SelectedRegister}" EnableRowVirtualization="True">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="区域" Binding="{Binding RegionId}" Width="120" />
+                            <DataGridTextColumn Header="地址" Binding="{Binding AddressText}" Width="135" />
+                            <DataGridTextColumn Header="HEX" Binding="{Binding HexValue}" Width="70" />
+                            <DataGridTextColumn Header="DEC" Binding="{Binding Value}" Width="70" />
+                            <DataGridTextColumn Header="ASCII" Binding="{Binding Ascii}" Width="70" />
+                            <DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="190" />
+                            <DataGridTextColumn Header="访问" Binding="{Binding Access}" Width="110" />
+                            <DataGridTextColumn Header="说明" Binding="{Binding Description}" Width="*" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <Border Grid.Row="2" Style="{StaticResource Card}" Margin="0,8,0,0">
+                        <DockPanel>
+                            <TextBlock Text="选择：" Foreground="{StaticResource MutedTextBrush}" VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding SelectedRegister.AddressText, FallbackValue=--}" FontFamily="Consolas" VerticalAlignment="Center" Margin="5,0,18,0" />
+                            <TextBlock Text="新值（HEX）" VerticalAlignment="Center" />
+                            <TextBox x:Name="WriteValueBox" Width="75" Margin="8,0" Text="{Binding SelectedRegister.HexValue, Mode=OneWay}" MaxLength="2" FontFamily="Consolas" />
+                            <Button Content="写入选中寄存器" Click="WriteRegisterButton_Click" />
+                            <TextBlock Text="只读和保留字段始终禁止写入；所有写操作记录审计日志。" Foreground="{StaticResource WarningBrush}" VerticalAlignment="Center" Margin="14,0" />
+                        </DockPanel>
+                    </Border>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="Dump 与导出">
+                <Grid Margin="2,10">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                    <WrapPanel>
+                        <Button Content="保存当前 .omodump" Style="{StaticResource PrimaryButton}" Click="SaveDumpButton_Click" />
+                        <Button Content="载入 Dump 并比较" Click="CompareDumpButton_Click" />
+                        <Button Content="导出曲线 CSV" Click="ExportHistoryButton_Click" />
+                        <Button Content="导出寄存器 CSV" Click="ExportRegistersButton_Click" />
+                    </WrapPanel>
+                    <Border Grid.Row="1" Style="{StaticResource Card}" Margin="3,8">
+                        <TextBlock Text="{Binding DumpSummary}" FontSize="15" />
+                    </Border>
+                    <DataGrid Grid.Row="2" ItemsSource="{Binding DumpDifferences}">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="区域" Binding="{Binding RegionId}" Width="130" />
+                            <DataGridTextColumn Header="地址" Binding="{Binding Address}" Width="150" />
+                            <DataGridTextColumn Header="当前" Binding="{Binding LeftHex}" Width="85" />
+                            <DataGridTextColumn Header="文件" Binding="{Binding RightHex}" Width="85" />
+                            <DataGridCheckBoxColumn Header="动态区域" Binding="{Binding IsVolatile}" Width="90" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="日志">
+                <TabControl Margin="2,10">
+                    <TabItem Header="应用日志">
+                        <DataGrid ItemsSource="{Binding Logs}">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="时间" Binding="{Binding Time}" Width="110" />
+                                <DataGridTextColumn Header="级别" Binding="{Binding Level}" Width="80" />
+                                <DataGridTextColumn Header="消息" Binding="{Binding Message}" Width="*" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </TabItem>
+                    <TabItem Header="I²C 事务">
+                        <Grid>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                            <Button Content="清空事务显示" HorizontalAlignment="Left" Click="ClearTracesButton_Click" />
+                            <DataGrid Grid.Row="1" ItemsSource="{Binding Traces}" Margin="0,8,0,0">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="时间" Binding="{Binding Time}" Width="110" />
+                                    <DataGridTextColumn Header="操作" Binding="{Binding Entry.Operation}" Width="70" />
+                                    <DataGridTextColumn Header="7 位地址" Binding="{Binding Address}" Width="90" />
+                                    <DataGridTextColumn Header="写入" Binding="{Binding WriteHex}" Width="2*" />
+                                    <DataGridTextColumn Header="读取" Binding="{Binding ReadHex}" Width="3*" />
+                                    <DataGridTextColumn Header="耗时" Binding="{Binding Duration}" Width="90" />
+                                    <DataGridTextColumn Header="结果" Binding="{Binding Result}" Width="*" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </Grid>
+                    </TabItem>
+                </TabControl>
+            </TabItem>
+
+            <TabItem Header="关于">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="28" MaxWidth="920" HorizontalAlignment="Left">
+                        <TextBlock Text="OptiDiag" FontSize="30" FontWeight="SemiBold" />
+                        <TextBlock Text="面向光模块固件调试的 Windows 上位机" FontSize="16" Foreground="{StaticResource MutedTextBrush}" Margin="0,4,0,22" />
+                        <TextBlock TextWrapping="Wrap" LineHeight="24">
+                            当前构建使用纯软件 SFF-8472 模拟器。界面通过应用服务访问协议层，协议层只解析内存快照；I²C 抽象不依赖 WPF。后续增加真实适配器、SFF-8636 或 CMIS 时，不需要重写现有界面和 SFF-8472 解码器。
+                        </TextBlock>
+                        <TextBlock Text="地址说明" FontSize="18" FontWeight="SemiBold" Margin="0,24,0,6" />
+                        <TextBlock TextWrapping="Wrap" LineHeight="23">规范名称 A0h/A2h 包含读写位；本软件事务日志中的 0x50/0x51 是对应的 7 位 I²C 地址。</TextBlock>
+                        <TextBlock Text="实现基线" FontSize="18" FontWeight="SemiBold" Margin="0,24,0,6" />
+                        <TextBlock Text="SFF-8472 Rev 12.5a · SFF-8024 Rev 4.14 · .NET 10 LTS · WPF" />
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
+
+        <Border Grid.Row="2" Background="#101A2B" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0">
+            <Grid Margin="14,0">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <TextBlock Text="{Binding ConnectionStatus}" Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="1" Text="{Binding StatusMessage}" Foreground="{StaticResource MutedTextBrush}" VerticalAlignment="Center" Margin="18,0" TextTrimming="CharacterEllipsis" />
+                <TextBlock Grid.Column="2" Text="模拟器 · 0x50 / 0x51 · 7-bit" Foreground="{StaticResource MutedTextBrush}" VerticalAlignment="Center" />
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

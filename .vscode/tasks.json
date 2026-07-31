@@ -1,0 +1,21 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build OptiDiag",
+      "type": "process",
+      "command": "${env:USERPROFILE}\\.dotnet\\dotnet.exe",
+      "args": ["build", "${workspaceFolder}\\OptiDiag.sln"],
+      "problemMatcher": "$msCompile",
+      "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "test OptiDiag",
+      "type": "process",
+      "command": "${env:USERPROFILE}\\.dotnet\\dotnet.exe",
+      "args": ["test", "${workspaceFolder}\\OptiDiag.sln"],
+      "problemMatcher": "$msCompile",
+      "group": "test"
+    }
+  ]
+}
