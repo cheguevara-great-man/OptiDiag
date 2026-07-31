@@ -109,6 +109,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     public ObservableCollection<Measurement> RemoteMeasurements { get; } = [];
     public ObservableCollection<DecodedField> RemoteFields { get; } = [];
     public ObservableCollection<RegisterValue> Registers { get; } = [];
+    public ObservableCollection<RegisterMapRow> RegisterMapRows { get; } = [];
     public ObservableCollection<string> Regions { get; } = [];
     public ObservableCollection<DecodeDiagnostic> Diagnostics { get; } = [];
     public ObservableCollection<AppLogEntry> Logs { get; } = [];
@@ -480,6 +481,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         RemoteInformation = snapshot.Module.RemoteModule?.Information;
         Replace(RemoteMeasurements, snapshot.Module.RemoteModule?.Measurements ?? []);
         Replace(RemoteFields, snapshot.Module.RemoteModule?.Fields ?? []);
+        Replace(RegisterMapRows, RegisterMapRow.Build(snapshot.Module.Registers));
 
         var regionNames = snapshot.Dump.Regions.Select(x => x.Id).Distinct().OrderBy(x => x).ToArray();
         Regions.Clear();
@@ -525,6 +527,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         DecodedFields.Clear();
         RemoteFields.Clear();
         Registers.Clear();
+        RegisterMapRows.Clear();
         Diagnostics.Clear();
         Regions.Clear();
         Regions.Add("全部");
