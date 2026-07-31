@@ -1,0 +1,16 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "OptiDiag WPF",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build OptiDiag",
+      "program": "${workspaceFolder}\\src\\OptiDiag.App\\bin\\Debug\\net10.0-windows\\OptiDiag.App.dll",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "DOTNET_ROOT": "${env:USERPROFILE}\\.dotnet"
+      }
+    }
+  ]
+}
