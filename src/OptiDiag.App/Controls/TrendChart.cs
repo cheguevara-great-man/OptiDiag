@@ -7,13 +7,13 @@ namespace OptiDiag.App.Controls;
 
 public sealed class TrendChart : FrameworkElement
 {
-    private static readonly (string Id, string Name, Color Color)[] Series =
+    private static readonly (string[] Ids, string Name, Color Color)[] Series =
     [
-        ("temperature", "温度", Color.FromRgb(255, 184, 92)),
-        ("voltage", "电压", Color.FromRgb(72, 198, 239)),
-        ("bias", "偏置", Color.FromRgb(165, 124, 255)),
-        ("tx-power", "TX", Color.FromRgb(64, 211, 151)),
-        ("rx-power", "RX", Color.FromRgb(255, 102, 153))
+        (["temperature"], "温度", Color.FromRgb(255, 184, 92)),
+        (["voltage"], "电压", Color.FromRgb(72, 198, 239)),
+        (["bias", "bias-lane-1"], "偏置", Color.FromRgb(165, 124, 255)),
+        (["tx-power", "tx-power-lane-1"], "TX", Color.FromRgb(64, 211, 151)),
+        (["rx-power", "rx-power-lane-1"], "RX", Color.FromRgb(255, 102, 153))
     ];
 
     public static readonly DependencyProperty SamplesProperty = DependencyProperty.Register(
@@ -62,8 +62,15 @@ public sealed class TrendChart : FrameworkElement
         var legendX = plot.Left;
         foreach (var definition in Series)
         {
+            var seriesId = definition.Ids.FirstOrDefault(
+                id => samples.Any(sample => sample.Values.ContainsKey(id)));
+            if (seriesId is null)
+            {
+                continue;
+            }
+
             var values = samples
-                .Select(x => x.Values.TryGetValue(definition.Id, out var value) ? value : double.NaN)
+                .Select(x => x.Values.TryGetValue(seriesId, out var value) ? value : double.NaN)
                 .ToArray();
             var finite = values.Where(double.IsFinite).ToArray();
             if (finite.Length < 2)

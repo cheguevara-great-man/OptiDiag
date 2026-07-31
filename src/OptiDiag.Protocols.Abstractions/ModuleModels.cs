@@ -25,6 +25,7 @@ public sealed record MemoryCaptureRegion(
     byte? Page = null,
     byte? Bank = null,
     byte? PageSelectOffset = null,
+    byte? BankSelectOffset = null,
     bool Optional = false,
     bool Volatile = false);
 
@@ -85,7 +86,9 @@ public sealed record Measurement(
     public string FormattedValue => double.IsFinite(Value) ? $"{Value:0.###} {Unit}" : "无效";
 
     public string? SecondaryFormattedValue =>
-        Id is "tx-power" or "rx-power" && double.IsFinite(Value) && Value > 0
+        (Id.StartsWith("tx-power", StringComparison.Ordinal)
+         || Id.StartsWith("rx-power", StringComparison.Ordinal))
+        && double.IsFinite(Value) && Value > 0
             ? $"{10 * Math.Log10(Value):0.###} dBm"
             : null;
 }
@@ -150,10 +153,13 @@ public sealed record RegisterValue(
     string Name,
     string Description,
     RegisterAccess Access,
-    bool IsVolatile = false)
+    bool IsVolatile = false,
+    byte? Bank = null)
 {
-    public string AddressText => Page.HasValue
-        ? $"0x{DeviceAddress:X2} P{Page:X2}:{Offset:X2}"
+    public string AddressText => Page.HasValue && Bank.HasValue
+        ? $"0x{DeviceAddress:X2} B{Bank:X2} P{Page:X2}:{Offset:X2}"
+        : Page.HasValue
+            ? $"0x{DeviceAddress:X2} P{Page:X2}:{Offset:X2}"
         : $"0x{DeviceAddress:X2}:{Offset:X2}";
 
     public string HexValue => $"{Value:X2}";

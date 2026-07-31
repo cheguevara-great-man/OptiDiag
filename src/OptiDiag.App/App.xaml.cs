@@ -3,6 +3,8 @@ using OptiDiag.Application;
 using OptiDiag.App.ViewModels;
 using OptiDiag.I2c.Simulator;
 using OptiDiag.Infrastructure;
+using OptiDiag.Protocols.Abstractions;
+using OptiDiag.Protocols.Cmis;
 using OptiDiag.Protocols.Sff8472;
 
 namespace OptiDiag.App;
@@ -14,14 +16,27 @@ public partial class App : System.Windows.Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
-        var adapter = new Sff8472Simulator();
-        var protocol = new Sff8472Protocol();
-        var session = new ModuleSession(adapter, protocol);
+        var sff8472Simulator = new Sff8472Simulator();
+        var cmisSimulator = new CmisSimulator();
+        var adapter = new SwitchableI2cAdapter(
+            new Dictionary<string, OptiDiag.I2c.Abstractions.II2cAdapter>
+            {
+                ["simulator-sff8472"] = sff8472Simulator,
+                ["simulator-cmis"] = cmisSimulator
+            },
+            "simulator-sff8472");
+        IOpticalModuleProtocol[] protocols =
+        [
+            new Sff8472Protocol(),
+            new CmisProtocol()
+        ];
+        var session = new ModuleSession(adapter, protocols);
         var poller = new PollingEngine(session);
         _viewModel = new MainWindowViewModel(
             session,
             poller,
             adapter,
+            sff8472Simulator,
             new DumpFileService(),
             new DumpComparisonService(),
             new CsvExportService());

@@ -41,13 +41,13 @@
                               ToolTip="{Binding SelectedDataSource.Description}" />
                     <CheckBox Content="模拟 SFF-8690"
                               IsChecked="{Binding SimulateSff8690, Mode=OneWay}"
-                              IsEnabled="{Binding IsSimulatorSelected}"
+                              IsEnabled="{Binding IsSffSimulatorSelected}"
                               VerticalAlignment="Center"
                               Click="SimulationSff8690CheckBox_Click"
                               ToolTip="勾选后模拟一个明确声明 SFF-8690 Rev 1.5 的可调谐模块" />
                     <CheckBox Content="模拟 RPM 远端"
                               IsChecked="{Binding SimulateRemotePerformanceMonitoring, Mode=OneWay}"
-                              IsEnabled="{Binding IsSimulatorSelected}"
+                              IsEnabled="{Binding IsSffSimulatorSelected}"
                               VerticalAlignment="Center"
                               Click="SimulationRemotePerformanceMonitoringCheckBox_Click"
                               ToolTip="勾选后采集 Page 20h-27h，并把标准映射重组为远端第二模块" />
@@ -102,7 +102,7 @@
                                 <StackPanel><TextBlock Text="波长" Foreground="{StaticResource MutedTextBrush}" /><TextBlock Text="{Binding Information.WavelengthNm, StringFormat={}{0:0} nm, FallbackValue=--}" FontSize="18" /></StackPanel>
                             </Border>
                             <Border Style="{StaticResource Card}" Width="245">
-                                <StackPanel><TextBlock Text="标称信令速率" Foreground="{StaticResource MutedTextBrush}" /><TextBlock Text="{Binding Information.NominalSignalingRateMbd, StringFormat={}{0:0} MBd, FallbackValue=--}" FontSize="18" /></StackPanel>
+                                <StackPanel><TextBlock Text="标称信令速率" Foreground="{StaticResource MutedTextBrush}" /><TextBlock Text="{Binding Information.NominalSignalingRateMbd, StringFormat={}{0:0} MBd, FallbackValue=--, TargetNullValue=--}" FontSize="18" /></StackPanel>
                             </Border>
                             <Border Style="{StaticResource Card}" Width="245">
                                 <StackPanel><TextBlock Text="最近采集" Foreground="{StaticResource MutedTextBrush}" /><TextBlock Text="{Binding SnapshotTime}" FontSize="15" /></StackPanel>
@@ -147,20 +147,22 @@
             <TabItem Header="监控与曲线">
                 <Grid Margin="2,10">
                     <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-                    <ItemsControl ItemsSource="{Binding Measurements}">
-                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><UniformGrid Rows="1" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Style="{StaticResource Card}">
-                                    <StackPanel>
-                                        <TextBlock Text="{Binding Name}" Foreground="{StaticResource MutedTextBrush}" />
-                                        <TextBlock Text="{Binding FormattedValue}" FontSize="20" FontWeight="SemiBold" />
-                                        <TextBlock Text="{Binding SecondaryFormattedValue}" Foreground="{StaticResource AccentBrush}" />
-                                    </StackPanel>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                    <ScrollViewer MaxHeight="225" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <ItemsControl ItemsSource="{Binding Measurements}">
+                            <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Style="{StaticResource Card}" Width="210">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Name}" Foreground="{StaticResource MutedTextBrush}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding FormattedValue}" FontSize="20" FontWeight="SemiBold" />
+                                            <TextBlock Text="{Binding SecondaryFormattedValue}" Foreground="{StaticResource AccentBrush}" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
                     <controls:TrendChart Grid.Row="1" Samples="{Binding TrendSamples}" Margin="5,12,5,4" />
                 </Grid>
             </TabItem>
@@ -450,12 +452,12 @@
                         <TextBlock Text="OptiDiag" FontSize="30" FontWeight="SemiBold" />
                         <TextBlock Text="面向光模块固件调试的 Windows 上位机" FontSize="16" Foreground="{StaticResource MutedTextBrush}" Margin="0,4,0,22" />
                         <TextBlock TextWrapping="Wrap" LineHeight="24">
-                            当前构建使用纯软件 SFF-8472 模拟器。界面通过应用服务访问协议层，协议层只解析内存快照；I²C 抽象不依赖 WPF。后续增加真实适配器、SFF-8636 或 CMIS 时，不需要重写现有界面和 SFF-8472 解码器。
+                            当前构建内置相互独立的 SFF-8472 与 CMIS 5.3 模拟器。界面通过应用服务访问协议层，协议层只解析内存快照；I²C 抽象不依赖 WPF。后续增加真实适配器、SFF-8636 或公司自定义协议时，不需要重写现有界面和解码器。
                         </TextBlock>
                         <TextBlock Text="地址说明" FontSize="18" FontWeight="SemiBold" Margin="0,24,0,6" />
                         <TextBlock TextWrapping="Wrap" LineHeight="23">规范名称 A0h/A2h 包含读写位；本软件事务日志中的 0x50/0x51 是对应的 7 位 I²C 地址。</TextBlock>
                         <TextBlock Text="实现基线" FontSize="18" FontWeight="SemiBold" Margin="0,24,0,6" />
-                        <TextBlock Text="SFF-8472 Rev 12.5a · SFF-8024 Rev 4.14 · .NET 10 LTS · WPF" />
+                        <TextBlock Text="CMIS Rev 5.3 · SFF-8472 Rev 12.5a · SFF-8024 Rev 4.14 · .NET 10 LTS · WPF" />
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

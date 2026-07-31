@@ -92,6 +92,8 @@ public sealed class ModuleMemoryService
         byte? page,
         byte offset,
         byte pageSelectOffset = 127,
+        byte? bank = null,
+        byte? bankSelectOffset = null,
         CancellationToken cancellationToken = default)
     {
         await _operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -103,6 +105,8 @@ public sealed class ModuleMemoryService
                     deviceAddress,
                     page.Value,
                     pageSelectOffset,
+                    bank,
+                    bankSelectOffset,
                     cancellationToken).ConfigureAwait(false);
             }
 
@@ -130,6 +134,8 @@ public sealed class ModuleMemoryService
         byte offset,
         byte value,
         byte pageSelectOffset = 127,
+        byte? bank = null,
+        byte? bankSelectOffset = null,
         CancellationToken cancellationToken = default)
     {
         await _operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -141,6 +147,8 @@ public sealed class ModuleMemoryService
                     deviceAddress,
                     page.Value,
                     pageSelectOffset,
+                    bank,
+                    bankSelectOffset,
                     cancellationToken).ConfigureAwait(false);
             }
 
@@ -165,6 +173,8 @@ public sealed class ModuleMemoryService
                 request.DeviceAddress,
                 request.Page.Value,
                 selector,
+                request.Bank,
+                request.BankSelectOffset,
                 cancellationToken).ConfigureAwait(false);
         }
 
@@ -196,31 +206,64 @@ public sealed class ModuleMemoryService
         byte deviceAddress,
         byte page,
         byte pageSelectOffset,
+        byte? bank,
+        byte? bankSelectOffset,
         CancellationToken cancellationToken)
     {
-        await _adapter.WriteRegistersAsync(
-            deviceAddress,
-            pageSelectOffset,
-            new[] { page },
-            cancellationToken).ConfigureAwait(false);
+        if (bankSelectOffset.HasValue)
+        {
+            if (pageSelectOffset != bankSelectOffset.Value + 1)
+            {
+                throw new InvalidOperationException("CMIS Bank Select 和 Page Select 必须是相邻寄存器。");
+            }
 
-        // SFF-8472 requires an unsupported page selection to fall back to 00h.
+            // CMIS requires an arbitrary bank/page change to be one WRITE
+            // transaction beginning at byte 126.
+            await _adapter.WriteRegistersAsync(
+                deviceAddress,
+                bankSelectOffset.Value,
+                new[] { bank ?? (byte)0, page },
+                cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            if (bank.HasValue)
+            {
+                throw new InvalidOperationException("设置 Bank 时必须提供 Bank Select 偏移。");
+            }
+
+            await _adapter.WriteRegistersAsync(
+                deviceAddress,
+                pageSelectOffset,
+                new[] { page },
+                cancellationToken).ConfigureAwait(false);
+        }
+
         // Reading the selector back prevents both reads and writes from targeting
-        // a different page than the one shown in the UI.
-        if (page == 0)
+        // a different page than the one shown in the UI. SFF-8472 page 00h is
+        // exempt because older modules may not provide a reliable readback.
+        if (page == 0 && !bankSelectOffset.HasValue)
         {
             return;
         }
 
         var selected = await _adapter.ReadRegistersAsync(
             deviceAddress,
-            pageSelectOffset,
-            1,
+            bankSelectOffset ?? pageSelectOffset,
+            bankSelectOffset.HasValue ? 2 : 1,
             cancellationToken).ConfigureAwait(false);
-        if (selected.Length != 1 || selected[0] != page)
+        var pageIndex = bankSelectOffset.HasValue ? 1 : 0;
+        var accepted = selected.Length > pageIndex && selected[pageIndex] == page;
+        if (bankSelectOffset.HasValue)
         {
-            var actual = selected.Length == 1 ? $"0x{selected[0]:X2}" : $"{selected.Length} 字节";
-            throw new InvalidDataException($"模块未接受页面 0x{page:X2}（读回 {actual}）。");
+            accepted &= selected[0] == (bank ?? (byte)0);
+        }
+
+        if (!accepted)
+        {
+            var actual = string.Join(' ', selected.Select(value => $"{value:X2}"));
+            throw new InvalidDataException(
+                $"模块未接受 Bank/Page B{bank ?? 0:X2}/P{page:X2}（读回 {actual}）。");
         }
     }
 }

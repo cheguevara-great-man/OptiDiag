@@ -1,6 +1,6 @@
 # OptiDiag
 
-OptiDiag 是一套使用 C#、.NET 10 和 WPF 开发的光模块固件调试上位机。当前版本以纯软件方式运行，内置一个可读写、监控值会随时间变化的 SFF-8472 模拟模块；可以在界面上切换纯 SFF-8472、SFF-8690 可调谐扩展和 RPM 远端第二模块，不需要任何真实 I²C 硬件。
+OptiDiag 是一套使用 C#、.NET 10 和 WPF 开发的光模块固件调试上位机。当前版本以纯软件方式运行，内置互相独立的 SFF-8472 与 CMIS 5.3 可读写模拟模块；不需要任何真实 I²C 硬件即可演示协议自动检测、分页/Bank 访问和完整调试流程。
 
 ## 当前功能
 
@@ -12,6 +12,9 @@ OptiDiag 是一套使用 C#、.NET 10 和 WPF 开发的光模块固件调试上�
 - Page 03h 的光模块/回环模块高精度时延、压缩日期、q8.16/q8.8/q16.16 及实时修正公式。
 - SFF-8690 Rev 1.5 能力、频率网格、通道/波长、误差、当前状态和锁存状态。
 - RPM Page 20h-24h 重组为第二个 SFF-8472 模块完整解码；Page 25h 保留、Page 26h-27h 厂商数据原样显示。
+- CMIS 5.3 的平面/分页内存检测，Page 00h 身份、Page 01h 能力、Page 02h 阈值、Page 03h 用户 EEPROM、Banked Page 10h 控制和 Page 11h 通道状态。
+- CMIS 模块温度/电压、最多 32 通道的 Tx 光功率、偏置电流、Rx 光功率、通道告警、输出状态和数据通道状态。
+- CMIS Bank Select + Page Select 原子选择、选择值读回校验，以及带 Bank 地址的原始寄存器读写。
 - CC_BASE、CC_EXT、CC_DMI、Page 03h CC_CALIB 校验。
 - 单页寄存器全景图，按区域和十六进制地址将全部采集字节铺成 16 列内存地图；支持逐格读取和受保护写入。
 - 原始寄存器查看、区域和文本过滤、受保护的单字节写入。
@@ -55,10 +58,11 @@ dotnet test .\OptiDiag.sln
 5. [扩展协议和适配器](docs/04-扩展与开发指南.md)
 6. [测试、调试和发布](docs/05-测试调试与发布.md)
 7. [SFF-8472/SFF-8690 实现覆盖清单](docs/06-SFF-8472与SFF-8690实现覆盖清单.md)
+8. [CMIS 协议与实现导读](docs/07-CMIS协议与实现导读.md)
 
 ## 设计边界
 
-`OptiDiag.I2c.Abstractions` 不引用 WPF 或任何协议；`OptiDiag.Protocols.Sff8472` 只解析内存快照；`OptiDiag.App` 不直接执行 I²C 事务。未来的真实 USB-I²C 适配器只需实现 `II2cAdapter`，未来协议只需实现 `IOpticalModuleProtocol`。
+`OptiDiag.I2c.Abstractions` 不引用 WPF 或任何协议；`OptiDiag.Protocols.Sff8472` 与 `OptiDiag.Protocols.Cmis` 并行解析内存快照；`OptiDiag.App` 不直接执行 I²C 事务。未来的真实 USB-I²C 适配器只需实现 `II2cAdapter`，未来协议只需实现 `IOpticalModuleProtocol`。
 
 规范中的 A0h/A2h 是带读写位的 8 位名称，本项目的事务对象始终使用对应的 7 位地址 `0x50/0x51`。
 
@@ -67,6 +71,8 @@ dotnet test .\OptiDiag.sln
 - [SNIA SFF-8472 Rev 12.5a](https://members.snia.org/document/dl/25916)
 - [SNIA SFF-8690 Rev 1.5](https://members.snia.org/document/dl/25977)
 - [SNIA SFF-8024 Rev 4.14](https://members.snia.org/document/dl/26423)
+- [OIF CMIS 5.3](https://www.oiforum.com/wp-content/uploads/OIF-CMIS-05.3.pdf)
+- [OIF Implementation Agreements（含 CMIS 5.x 勘误）](https://www.oiforum.com/technical-work/implementation-agreements-ias/)
 - [NXP I²C-bus specification UM10204](https://www.nxp.com/docs/en/user-guide/UM10204.pdf)
 
 规范 PDF 不复制进仓库。代码中的枚举、字段解释和换算逻辑用于实现互操作，开发时仍应以正式规范为准。

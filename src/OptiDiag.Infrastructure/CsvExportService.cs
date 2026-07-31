@@ -34,13 +34,14 @@ public sealed class CsvExportService
         CancellationToken cancellationToken = default)
     {
         await using var writer = new StreamWriter(path, false, Utf8WithBom);
-        await writer.WriteLineAsync("region,address7,page,offset,hex,decimal,ascii,name,access,description").ConfigureAwait(false);
+        await writer.WriteLineAsync("region,address7,bank,page,offset,hex,decimal,ascii,name,access,description").ConfigureAwait(false);
         foreach (var item in registers)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var line = string.Join(',',
                 Escape(item.RegionId),
                 $"0x{item.DeviceAddress:X2}",
+                item.Bank.HasValue ? $"0x{item.Bank:X2}" : string.Empty,
                 item.Page.HasValue ? $"0x{item.Page:X2}" : string.Empty,
                 $"0x{item.Offset:X2}",
                 item.HexValue,
