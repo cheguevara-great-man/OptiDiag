@@ -8,6 +8,8 @@ internal static class CmisPagedDecoder
     public static void Decode(ModuleDump dump, List<DecodedField> fields)
     {
         var sink = new CmisFieldSink(fields);
+        var revision = new CmisRevision(
+            dump.FindRegion(CmisMemoryMap.LowerRegionId)?.Data.ElementAtOrDefault(1) ?? 0);
         foreach (var region in dump.Regions.Where(x => x.Page.HasValue))
         {
             if (region.Data.Length < 128 || region.Page is not { } page)
@@ -17,8 +19,16 @@ internal static class CmisPagedDecoder
 
             switch (page)
             {
+                case 0x0C:
+                case 0x0D:
+                case 0x60:
+                case 0x61:
+                case 0x62:
+                case 0x6D:
+                    Cmis54PagedDecoder.Decode(region, sink);
+                    break;
                 case 0x04:
-                    DecodeLaserCapabilities(region.Data, sink);
+                    DecodeLaserCapabilities(region.Data, revision, sink);
                     break;
                 case 0x10:
                     DecodePage10(region, sink);
@@ -27,7 +37,7 @@ internal static class CmisPagedDecoder
                     DecodePage11(region, sink);
                     break;
                 case 0x12:
-                    DecodePage12(region, sink);
+                    DecodePage12(region, revision, sink);
                     break;
                 case 0x13:
                     DecodePage13(region, sink);
@@ -45,10 +55,10 @@ internal static class CmisPagedDecoder
                     DecodePage17(region, sink);
                     break;
                 case 0x18:
-                    DecodePage18(region, sink);
+                    DecodePage18(region, revision, sink);
                     break;
                 case 0x19:
-                    DecodePage19(region, sink);
+                    DecodePage19(region, revision, sink);
                     break;
                 case 0x1C:
                     DecodePage1C(region, dump, sink);
@@ -63,7 +73,7 @@ internal static class CmisPagedDecoder
         }
     }
 
-    private static void DecodeLaserCapabilities(byte[] page, CmisFieldSink sink)
+    private static void DecodeLaserCapabilities(byte[] page, CmisRevision revision, CmisFieldSink sink)
     {
         var grids = new[]
         {
@@ -84,9 +94,15 @@ internal static class CmisPagedDecoder
 
         sink.Bool("可调谐能力", "FineTuningSupported", page[1], 7, "P04h.129.7");
         sink.Bool("可调谐能力", "GridSupported150GHz", page[1], 6, "P04h.129.6");
+        if (revision.IsAtLeast54)
+        {
+            sink.Bool("5.4 可调谐能力", "GridSupported300GHz", page[1], 5, "P04h.129.5");
+        }
 
-        var gridNames = new[] { "3.125", "6.25", "12.5", "25", "50", "100", "33.333", "75", "150" };
-        var gridStepThz = new[] { 0.003125, 0.00625, 0.0125, 0.025, 0.05, 0.1, 0.1 / 3, 0.025, 0.025 };
+        var gridNames = revision.IsAtLeast54
+            ? new[] { "3.125", "6.25", "12.5", "25", "50", "100", "33.333", "75", "150", "300" }
+            : new[] { "3.125", "6.25", "12.5", "25", "50", "100", "33.333", "75", "150" };
+        var gridStepThz = new[] { 0.003125, 0.00625, 0.0125, 0.025, 0.05, 0.1, 0.1 / 3, 0.025, 0.025, 0.0125 };
         for (var index = 0; index < gridNames.Length; index++)
         {
             var offset = 2 + index * 4;
@@ -94,9 +110,13 @@ internal static class CmisPagedDecoder
             var high = CmisDecoderHelpers.S16(page, offset + 2);
             var lowFrequency = index == 8
                 ? 193.1 + (low + 3) * gridStepThz[index]
+                : index == 9
+                    ? 193.1 + (low - 9) * gridStepThz[index]
                 : 193.1 + low * gridStepThz[index];
             var highFrequency = index == 8
                 ? 193.1 + (high + 3) * gridStepThz[index]
+                : index == 9
+                    ? 193.1 + (high - 9) * gridStepThz[index]
                 : 193.1 + high * gridStepThz[index];
             sink.Add("可调谐能力", $"Grid{gridNames[index]}GHzRange",
                 $"n={low}..{high}; {lowFrequency:0.######}..{highFrequency:0.######} THz",
@@ -113,6 +133,11 @@ internal static class CmisPagedDecoder
             CmisDecoderHelpers.FormatNumber(CmisDecoderHelpers.S16(page, 66) * 0.001, "GHz"),
             "P04h.194-195");
         sink.Bool("可调谐能力", "ProgOutputPowerPerLaneSupported", page[68], 7, "P04h.196.7");
+        if (revision.IsAtLeast54)
+        {
+            sink.Bool("5.4 可调谐能力", "OutputPowerTxRelativeThresholdsSupported", page[68], 6,
+                "P04h.196.6");
+        }
         sink.Add("可调谐能力", "ProgOutputPowerMin",
             CmisDecoderHelpers.FormatNumber(CmisDecoderHelpers.S16(page, 70) * 0.01, "dBm"),
             "P04h.198-199");
@@ -274,7 +299,7 @@ internal static class CmisPagedDecoder
         }
     }
 
-    private static void DecodePage12(MemoryRegionData region, CmisFieldSink sink)
+    private static void DecodePage12(MemoryRegionData region, CmisRevision revision, CmisFieldSink sink)
     {
         var page = region.Data;
         var bank = region.Bank ?? 0;
@@ -287,6 +312,11 @@ internal static class CmisPagedDecoder
                 CmisDecoderHelpers.Source(0x12, 128 + lane, bank), writable: true);
             sink.Bool("激光调谐", $"Lane{absoluteLane}FineTuningEnable", page[lane], 0,
                 CmisDecoderHelpers.Source(0x12, 128 + lane, bank, "0"), writable: true);
+            if (revision.IsAtLeast54)
+            {
+                sink.Bool("5.4 相对输出功率阈值", $"Lane{absoluteLane}RelativeOutputPowerThresholdsEnable",
+                    page[lane], 1, CmisDecoderHelpers.Source(0x12, 128 + lane, bank, "1"), writable: true);
+            }
             sink.Add("激光调谐", $"Lane{absoluteLane}ChannelNumber",
                 CmisDecoderHelpers.S16(page, 8 + lane * 2),
                 CmisDecoderHelpers.Source(0x12, 136 + lane * 2, bank), writable: true);
@@ -307,7 +337,23 @@ internal static class CmisPagedDecoder
             DecodeTuningFlags(page[111 + lane], absoluteLane, bank, 239 + lane, true, sink);
         }
 
+        if (revision.IsAtLeast54)
+        {
+            AddRelativeThreshold("OutputPowerTxHighAlarmRelativeThreshold", page[88] >> 4, true, 216, "7-4");
+            AddRelativeThreshold("OutputPowerTxHighWarningRelativeThreshold", page[88] & 0x0F, true, 216, "3-0");
+            AddRelativeThreshold("OutputPowerTxLowAlarmRelativeThreshold", page[89] >> 4, false, 217, "7-4");
+            AddRelativeThreshold("OutputPowerTxLowWarningRelativeThreshold", page[89] & 0x0F, false, 217, "3-0");
+        }
+
         AddLaneBitmap(sink, "激光调谐标志", "LaserTuningFlagSummary", page[102], bank, 0x12, 230);
+
+        void AddRelativeThreshold(string name, int code, bool positive, int offset, string bits)
+        {
+            var value = (code + 1) * 0.5 * (positive ? 1 : -1);
+            sink.Add("5.4 相对输出功率阈值", name,
+                CmisDecoderHelpers.FormatNumber(value, "dB"),
+                CmisDecoderHelpers.Source(0x12, offset, bank, bits), writable: true);
+        }
     }
 
     private static void DecodePage13(MemoryRegionData region, CmisFieldSink sink)
@@ -566,16 +612,18 @@ internal static class CmisPagedDecoder
             true);
     }
 
-    private static void DecodePage18(MemoryRegionData region, CmisFieldSink sink)
+    private static void DecodePage18(MemoryRegionData region, CmisRevision revision, CmisFieldSink sink)
     {
         var page = region.Data;
         var bank = region.Bank ?? 0;
         for (var lane = 0; lane < 8; lane++)
         {
             var absoluteLane = bank * 8 + lane + 1;
-            sink.Add("NAD 控制集", $"SCS0Lane{absoluteLane}NADBlockIndex", page[lane] & 0x0F,
+            sink.Add("NAD 控制集", $"SCS0Lane{absoluteLane}NADBlockIndex",
+                revision.IsAtLeast54 ? page[lane] : page[lane] & 0x0F,
                 CmisDecoderHelpers.Source(0x18, 128 + lane, bank), writable: true);
-            sink.Add("NAD 控制集", $"SCS1Lane{absoluteLane}NADBlockIndex", page[8 + lane] & 0x0F,
+            sink.Add("NAD 控制集", $"SCS1Lane{absoluteLane}NADBlockIndex",
+                revision.IsAtLeast54 ? page[8 + lane] : page[8 + lane] & 0x0F,
                 CmisDecoderHelpers.Source(0x18, 136 + lane, bank), writable: true);
         }
 
@@ -587,7 +635,7 @@ internal static class CmisPagedDecoder
             "CMIS-VCS 补充规范定义", true);
     }
 
-    private static void DecodePage19(MemoryRegionData region, CmisFieldSink sink)
+    private static void DecodePage19(MemoryRegionData region, CmisRevision revision, CmisFieldSink sink)
     {
         var page = region.Data;
         var bank = region.Bank ?? 0;
@@ -598,7 +646,8 @@ internal static class CmisPagedDecoder
                 CmisDecoderHelpers.Source(0x19, 128 + lane, bank), sink);
             DecodeDpConfig(page[8 + lane], $"Lane{absoluteLane}DPConfigRx",
                 CmisDecoderHelpers.Source(0x19, 136 + lane, bank), sink);
-            sink.Add("NAD 活动控制集", $"Lane{absoluteLane}NADBlockIndex", page[16 + lane] & 0x0F,
+            sink.Add("NAD 活动控制集", $"Lane{absoluteLane}NADBlockIndex",
+                revision.IsAtLeast54 ? page[16 + lane] : page[16 + lane] & 0x0F,
                 CmisDecoderHelpers.Source(0x19, 144 + lane, bank));
         }
 
@@ -612,6 +661,8 @@ internal static class CmisPagedDecoder
         var page = region.Data;
         var bank = region.Bank ?? 0;
         var mediaType = dump.FindRegion(CmisMemoryMap.LowerRegionId)?.Data.ElementAtOrDefault(85) ?? 0;
+        var revision = new CmisRevision(
+            dump.FindRegion(CmisMemoryMap.LowerRegionId)?.Data.ElementAtOrDefault(1) ?? 0);
         for (var descriptor = 0; descriptor < 15; descriptor++)
         {
             var offset = descriptor * 8;
@@ -629,7 +680,10 @@ internal static class CmisPagedDecoder
                 CmisDecoderHelpers.Source(0x1C, 128 + offset, bank) + $"-{135 + offset}",
                 $"Host lanes={laneCounts >> 4}; Media lanes={laneCounts & 0x0F}; "
                 + $"Host starts=0x{page[offset + 3]:X2}; Media starts=0x{page[offset + 4]:X2}; "
-                + $"NetworkPath={CmisDecoderHelpers.Bit(page[offset + 5], 7)}");
+                + $"NetworkPath={CmisDecoderHelpers.Bit(page[offset + 5], 7)}"
+                + (revision.IsAtLeast54
+                    ? $"; Host UID.GID={page[offset + 6] >> 4}; Media UID.GID={page[offset + 6] & 0x0F}"
+                    : string.Empty));
         }
     }
 
@@ -663,7 +717,7 @@ internal static class CmisPagedDecoder
         sink.Add("外部补充规范", $"Page{region.Page:X2}h",
             "原始页已采集",
             CmisDecoderHelpers.Source(region.Page.Value, 128, region.Bank) + "-255",
-            $"{definition?.Name}；具体字段不在 OIF-CMIS-05.3 基础文档中，需 {definition?.SupportAdvertisement}");
+            $"{definition?.Name}；具体字段不在 OIF-CMIS-05.3/05.4 基础文档中，需 {definition?.SupportAdvertisement}");
     }
 
     private static void DecodeNetworkPathConfiguration(

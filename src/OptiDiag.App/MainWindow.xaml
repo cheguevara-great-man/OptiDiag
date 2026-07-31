@@ -308,11 +308,11 @@
                     </Grid.RowDefinitions>
                     <Border Style="{StaticResource Card}">
                         <StackPanel>
-                            <TextBlock Text="CMIS 5.3 Command Data Block" FontSize="18" FontWeight="SemiBold" />
+                            <TextBlock Text="CMIS 5.3 / 5.4 Command Data Block" FontSize="18" FontWeight="SemiBold" />
                             <TextBlock Margin="0,5,0,0"
                                        Foreground="{StaticResource MutedTextBrush}"
                                        TextWrapping="Wrap"
-                                       Text="这里列出 CMIS 5.3 基础规范明确定义的全部 CDB 命令。发送顺序、CMDID 触发、LPL/EPL 和校验由软件自动处理；具体命令参数仍按十六进制输入，避免软件猜测厂商或补充规范语义。" />
+                                       Text="命令表会按自动检测到的 CMIS 版本切换：5.3 保留原命令，5.4 增加模块时间和固件管理命令并隐藏已移除命令。发送顺序、CMDID 触发、LPL/EPL 和校验由软件自动处理。" />
                         </StackPanel>
                     </Border>
                     <Grid Grid.Row="1" Margin="4,8">
@@ -561,7 +561,7 @@
                         <TextBlock Text="OptiDiag" FontSize="30" FontWeight="SemiBold" />
                         <TextBlock Text="面向光模块固件调试的 Windows 上位机" FontSize="16" Foreground="{StaticResource MutedTextBrush}" Margin="0,4,0,22" />
                         <TextBlock TextWrapping="Wrap" LineHeight="24">
-                            当前构建内置相互独立的 SFF-8472 与 CMIS 5.3 模拟器。CMIS 包含基础规范页面、VDM、CDB 和固件下载状态机；外部补充规范页面会明确标注并保留原始数据。界面通过应用服务访问协议层，I²C 抽象不依赖 WPF。后续增加真实适配器、SFF-8636 或公司自定义协议时，不需要重写现有解码器。
+                            当前构建内置相互独立的 SFF-8472、CMIS 5.3 与 CMIS 5.4 模拟器。CMIS 包含版本化页面、VDM、CDB 和固件下载状态机；外部补充规范页面会明确标注并保留原始数据。界面通过应用服务访问协议层，I²C 抽象不依赖 WPF。后续增加真实适配器、SFF-8636 或公司自定义协议时，不需要重写现有解码器。
                         </TextBlock>
                         <TextBlock Text="地址说明" FontSize="18" FontWeight="SemiBold" Margin="0,24,0,6" />
                         <TextBlock TextWrapping="Wrap" LineHeight="23">规范名称 A0h/A2h 包含读写位；本软件事务日志中的 0x50/0x51 是对应的 7 位 I²C 地址。</TextBlock>

@@ -54,7 +54,9 @@ public sealed class ModuleMemoryService
                 new ModuleDump(
                     1,
                     protocol.Id,
-                    protocol.Revision,
+                    protocol is ICapturedRevisionProvider revisionProvider
+                        ? revisionProvider.ResolveRevision(regions)
+                        : protocol.Revision,
                     DateTimeOffset.Now,
                     _adapter.Info.DisplayName,
                     regions,

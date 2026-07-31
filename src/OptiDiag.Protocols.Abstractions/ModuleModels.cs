@@ -203,3 +203,13 @@ public interface IOpticalModuleProtocol
 
     DecodedModule Decode(ModuleDump dump);
 }
+
+/// <summary>
+/// Optional protocol capability for resolving a module-declared revision after
+/// memory has been captured. This keeps Dump metadata accurate for protocols
+/// whose decoder supports more than one revision.
+/// </summary>
+public interface ICapturedRevisionProvider
+{
+    string ResolveRevision(IReadOnlyList<MemoryRegionData> capturedRegions);
+}

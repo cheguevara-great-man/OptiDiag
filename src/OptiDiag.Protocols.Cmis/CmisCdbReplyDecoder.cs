@@ -6,7 +6,7 @@ namespace OptiDiag.Protocols.Cmis;
 public sealed record CmisCdbDecodedValue(string Name, string Value, string Description = "");
 
 /// <summary>
-/// Semantic decoder for reply layouts defined in CMIS 5.3 chapter 9.
+/// Semantic decoder for reply layouts defined in CMIS 5.3/5.4 chapter 9.
 /// Empty-reply commands intentionally produce no payload fields.
 /// </summary>
 public static class CmisCdbReplyDecoder
@@ -25,6 +25,10 @@ public static class CmisCdbReplyDecoder
                 Add(values, data, 1, "UnlockStatus", value =>
                     (value & 0x80) != 0 ? "Module password accepted" :
                     value == 1 ? "Host password accepted" : "Module boot-up");
+                break;
+            case 0x0005:
+            case 0x0006:
+                DecodeModuleTime(values, data);
                 break;
             case 0x0040:
                 DecodeCommandBitmap(values, data, 2, 32, 0x0000);
@@ -46,7 +50,7 @@ public static class CmisCdbReplyDecoder
                 Add(values, data, 0, "CMIS-VCS Supported", value => Bool((value & 1) != 0));
                 break;
             case 0x0050:
-                DecodeApplicationAttributes(values, data);
+                DecodeApplicationAttributes(values, command, data);
                 break;
             case 0x0051:
                 DecodeInterfaceDescription(values, data);
@@ -58,6 +62,19 @@ public static class CmisCdbReplyDecoder
                 AddU32(values, data, 0, "BytesCopied");
                 Add(values, data, 4, "CopyDirection", value => $"0x{value:X2}");
                 Add(values, data, 5, "CopyStatus", value => value == 0 ? "Success" : $"0x{value:X2}");
+                break;
+            case 0x010B:
+                DecodeFirmwareActivationOptions(values, data);
+                break;
+            case 0x010D:
+                Add(values, data, 0, "FirmwareBank", value => value switch
+                {
+                    0 => "Bank A",
+                    1 => "Bank B",
+                    2 => "Fixed load",
+                    _ => $"Reserved 0x{value:X2}"
+                });
+                AddAscii(values, data, 2, 64, "FirmwareLoadTag");
                 break;
             case >= 0x0210 and <= 0x0217:
                 DecodePerformanceRecords(values, command, data);
@@ -171,31 +188,92 @@ public static class CmisCdbReplyDecoder
         Add(values, data, 51, "SignaturePadScheme", value => $"0x{value:X2}");
     }
 
-    private static void DecodeApplicationAttributes(ICollection<CmisCdbDecodedValue> values, byte[] data)
+    private static void DecodeApplicationAttributes(
+        ICollection<CmisCdbDecodedValue> values,
+        CmisCdbCommand command,
+        byte[] data)
     {
-        AddU16(values, data, 0, "ApplicationNumber");
-        AddU16(values, data, 2, "MaxModulePower", "mW");
-        AddS16(values, data, 4, "ProgOutputPowerMin", 0.01, "dBm");
-        AddS16(values, data, 6, "ProgOutputPowerMax", 0.01, "dBm");
-        AddHalf(values, data, 8, "PreFECBERThreshold");
-        AddS16(values, data, 10, "RxLOSOpticalPowerThreshold", 0.01, "dBm");
-        AddOpticalPower(values, data, 12, "RxPowerHighAlarmThreshold");
-        AddOpticalPower(values, data, 14, "RxPowerLowAlarmThreshold");
-        AddOpticalPower(values, data, 16, "RxPowerHighWarningThreshold");
-        AddOpticalPower(values, data, 18, "RxPowerLowWarningThreshold");
+        var requestsAllApplications = command.LocalPayload.Length >= 2
+            && BinaryPrimitives.ReadUInt16BigEndian(command.LocalPayload.AsSpan(0, 2)) == 0;
+        if (requestsAllApplications && data.Length > 120)
+        {
+            for (var page = 0; page < Math.Min(15, data.Length / 128); page++)
+            {
+                DecodeApplicationAttributeRecord(values, data.AsSpan(page * 128 + 8, 20), $"App{page + 1}.");
+            }
+
+            return;
+        }
+
+        DecodeApplicationAttributeRecord(values, data, string.Empty);
+    }
+
+    private static void DecodeApplicationAttributeRecord(
+        ICollection<CmisCdbDecodedValue> values,
+        ReadOnlySpan<byte> record,
+        string prefix)
+    {
+        var data = record.ToArray();
+        AddU16(values, data, 0, $"{prefix}ApplicationNumber");
+        AddU16(values, data, 2, $"{prefix}MaxModulePower", "mW");
+        AddS16(values, data, 4, $"{prefix}ProgOutputPowerMin", 0.01, "dBm");
+        AddS16(values, data, 6, $"{prefix}ProgOutputPowerMax", 0.01, "dBm");
+        AddHalf(values, data, 8, $"{prefix}PreFECBERThreshold");
+        AddS16(values, data, 10, $"{prefix}RxLOSOpticalPowerThreshold", 0.01, "dBm");
+        AddOpticalPower(values, data, 12, $"{prefix}RxPowerHighAlarmThreshold");
+        AddOpticalPower(values, data, 14, $"{prefix}RxPowerLowAlarmThreshold");
+        AddOpticalPower(values, data, 16, $"{prefix}RxPowerHighWarningThreshold");
+        AddOpticalPower(values, data, 18, $"{prefix}RxPowerLowWarningThreshold");
     }
 
     private static void DecodeInterfaceDescription(ICollection<CmisCdbDecodedValue> values, byte[] data)
     {
-        AddU16(values, data, 0, "InterfaceID");
+        if (TryU16(data, 0, out var interfaceUid))
+        {
+            values.Add(new("InterfaceUID", $"0x{interfaceUid & 0x0FFF:X3}",
+                $"GID={(interfaceUid >> 8) & 0x0F}; ID={interfaceUid & 0xFF}"));
+        }
         Add(values, data, 2, "InterfaceLocation", value => value == 0 ? "Media side" : "Host side");
-        AddAscii(values, data, 4, 16, "InterfaceName");
-        AddAscii(values, data, 20, 48, "InterfaceDescription");
+        AddAscii(values, data, 3, 16, "InterfaceName");
+        AddAscii(values, data, 19, 48, "InterfaceDescription");
         AddHalf(values, data, 68, "InterfaceDataRate", "Gb/s");
         AddU16(values, data, 70, "InterfaceLaneCount");
         AddHalf(values, data, 72, "LaneSignalingRate", "GBd");
         AddAscii(values, data, 74, 16, "Modulation");
         AddU16(values, data, 90, "BitsPerSymbol");
+        AddHalf(values, data, 92, "BitsPerSymbolExact");
+        AddHalf(values, data, 94, "GridSpacingMin", "GHz");
+    }
+
+    private static void DecodeModuleTime(ICollection<CmisCdbDecodedValue> values, byte[] data)
+    {
+        if (data.Length < 8)
+        {
+            return;
+        }
+
+        var nanoseconds = BinaryPrimitives.ReadInt64BigEndian(data.AsSpan(0, 8));
+        values.Add(new("ModuleTimeNanoseconds", nanoseconds.ToString(), "Nanoseconds since POSIX epoch"));
+        try
+        {
+            var seconds = Math.DivRem(nanoseconds, 1_000_000_000, out var remainder);
+            var timestamp = DateTimeOffset.FromUnixTimeSeconds(seconds).AddTicks(remainder / 100);
+            values.Add(new("ModuleTimeUtc", timestamp.ToString("O")));
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            values.Add(new("ModuleTimeUtc", "Out of DateTimeOffset range"));
+        }
+    }
+
+    private static void DecodeFirmwareActivationOptions(
+        ICollection<CmisCdbDecodedValue> values,
+        byte[] data)
+    {
+        Add(values, data, 0, "RestartActiveLoadHitlessAvailable", value => Bool((value & 0x01) != 0));
+        Add(values, data, 0, "SwitchToInactiveLoadHitlessAvailable", value => Bool((value & 0x02) != 0));
+        Add(values, data, 1, "RestartPreservesConfiguration", value => Bool((value & 0x01) != 0));
+        Add(values, data, 1, "SwitchPreservesConfiguration", value => Bool((value & 0x02) != 0));
     }
 
     private static void DecodeFirmwareInfo(ICollection<CmisCdbDecodedValue> values, byte[] data)

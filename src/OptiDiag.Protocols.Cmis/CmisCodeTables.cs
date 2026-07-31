@@ -645,6 +645,7 @@ public static class CmisCodeTables
         6 => "33.333 GHz",
         7 => "75 GHz",
         8 => "150 GHz",
+        9 => "300 GHz",
         15 => "不可用",
         _ => "保留"
     };

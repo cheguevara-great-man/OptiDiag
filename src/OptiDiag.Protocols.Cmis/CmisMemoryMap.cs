@@ -21,7 +21,7 @@ public sealed record CmisPageDefinition(
     string SupportAdvertisement);
 
 /// <summary>
-/// CMIS 5.3 Table 8-1 expressed as executable metadata.  The capture rules deliberately
+/// CMIS 5.3/5.4 Table 8-1 expressed as executable metadata. The capture rules deliberately
 /// avoid reserved and vendor pages and only read optional pages when the module advertises
 /// them.  Pages whose register semantics live in a separate OIF supplement are retained as
 /// raw data and explicitly marked as external rather than guessed.
@@ -51,7 +51,11 @@ public static class CmisMemoryMap
             CmisPageCoverage.ExternalSupplement, "00h:57 / Resource Module specification"),
         new(0x08, 0x0B, "Link Training Supplement Pages", "8.1.2", false, RegisterAccess.Mixed,
             CmisPageCoverage.ExternalSupplement, "CMIS-LT supplement"),
-        new(0x0C, 0x0F, "Reserved", "8.1.2", false, RegisterAccess.Reserved,
+        new(0x0C, 0x0C, "Module Management", "8.11 (5.4)", false, RegisterAccess.Mixed,
+            CmisPageCoverage.BaseSpecification, "01h:173.7"),
+        new(0x0D, 0x0D, "Firmware Management", "8.12 (5.4)", false, RegisterAccess.Mixed,
+            CmisPageCoverage.BaseSpecification, "01h:173.6"),
+        new(0x0E, 0x0F, "Reserved", "8.1.2", false, RegisterAccess.Reserved,
             CmisPageCoverage.Reserved, "Never access"),
         new(0x10, 0x10, "Lane and Data Path Configuration", "8.9", true, RegisterAccess.Mixed,
             CmisPageCoverage.BaseSpecification, "Mandatory for paged memory"),
@@ -99,7 +103,17 @@ public static class CmisMemoryMap
             CmisPageCoverage.ExternalSupplement, "01h:142.4 / C-CMIS"),
         new(0x50, 0x5F, "Link Training", "8.1.2", false, RegisterAccess.Mixed,
             CmisPageCoverage.ExternalSupplement, "01h:252.6 / CMIS-LT"),
-        new(0x60, 0x9E, "Reserved", "8.1.2", false, RegisterAccess.Reserved,
+        new(0x60, 0x60, "Lane and Datapath Management Extensions", "8.30 (5.4)", true,
+            RegisterAccess.Mixed, CmisPageCoverage.BaseSpecification, "01h:174.7"),
+        new(0x61, 0x61, "Lane and Datapath Monitoring", "8.31 (5.4)", true,
+            RegisterAccess.ReadOnly, CmisPageCoverage.BaseSpecification, "01h:174.6"),
+        new(0x62, 0x62, "Lane Supervision Thresholds", "8.32 (5.4)", true,
+            RegisterAccess.ReadOnly, CmisPageCoverage.BaseSpecification, "01h:174.5"),
+        new(0x63, 0x6C, "Reserved", "8.1.2", false, RegisterAccess.Reserved,
+            CmisPageCoverage.Reserved, "Never access"),
+        new(0x6D, 0x6D, "Media Lane Switching", "8.33 (5.4)", true,
+            RegisterAccess.Mixed, CmisPageCoverage.BaseSpecification, "01h:252.5"),
+        new(0x6E, 0x9E, "Reserved", "8.1.2", false, RegisterAccess.Reserved,
             CmisPageCoverage.Reserved, "Never access"),
         new(0x9F, 0x9F, "CDB Message", "8.23", false, RegisterAccess.Mixed,
             CmisPageCoverage.BaseSpecification, "01h:163.7-6"),
@@ -120,16 +134,17 @@ public static class CmisMemoryMap
             Page(Page02RegionId, "CMIS Page 02h Thresholds", 0x02)
         };
 
-        foreach (var page in new byte[] { 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B })
+        foreach (var page in new byte[] { 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D })
         {
             result.Add(Page(RegionId(page), DisplayName(page), page, optional: true));
         }
 
-        for (byte bank = 0; bank < 4; bank++)
+        for (byte bank = 0; bank < 32; bank++)
         {
             foreach (var page in new byte[]
                      {
-                         0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1D
+                         0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1D,
+                         0x60, 0x61, 0x62, 0x6D
                      })
             {
                 result.Add(Page(
@@ -142,9 +157,11 @@ public static class CmisMemoryMap
             }
         }
 
-        // Page 1Ch uses its own advertised bank count (up to 15), not BanksSupported.
-        for (byte bank = 0; bank < 15; bank++)
+        // Page 1Ch uses its own advertised bank count. 5.3 defined 4 bits (15
+        // banks); 5.4 widened the same byte to U8 (255 banks).
+        for (var bankIndex = 0; bankIndex < 255; bankIndex++)
         {
+            var bank = (byte)bankIndex;
             result.Add(Page(
                 RegionId(0x1C, bank),
                 $"CMIS NAD Block {bank} Page 1Ch",
@@ -154,7 +171,7 @@ public static class CmisMemoryMap
         }
 
         // Page 2Fh must be captured first because it advertises how many VDM groups exist.
-        for (byte bank = 0; bank < 4; bank++)
+        for (byte bank = 0; bank < 32; bank++)
         {
             result.Add(Page(
                 RegionId(0x2F, bank),
@@ -248,8 +265,17 @@ public static class CmisMemoryMap
             return false;
         }
 
-        var laneBankCount = DecodeLaneBankCount(page01[14]);
+        var revision = CmisRevision.FromLowerMemory(lower);
+        var laneBankCount = DecodeLaneBankCount(page01, revision);
         var bank = region.Bank ?? 0;
+
+        // CMIS 5.4 Page 0Ch is a systematic page-support bitmap. Once it has
+        // been captured it is the preferred authority for optional pages.
+        var page0C = capturedRegions.FirstOrDefault(x => x.Page == 0x0C)?.Data;
+        if (revision.IsAtLeast54 && page0C is { Length: 128 } && !IsPageSupported(page0C, page))
+        {
+            return false;
+        }
 
         return page switch
         {
@@ -258,6 +284,8 @@ public static class CmisMemoryMap
             0x05 => IsSet(page01[14], 3),
             0x06 or 0x07 => lower[57] == 1,
             >= 0x08 and <= 0x0B => IsSet(page01[124], 6),
+            0x0C => revision.IsAtLeast54 && IsSet(page01[45], 7),
+            0x0D => revision.IsAtLeast54 && IsSet(page01[45], 6),
             0x10 or 0x11 => bank < laneBankCount,
             0x12 => bank < laneBankCount && IsSet(page01[27], 6),
             0x13 or 0x14 => bank < laneBankCount && IsSet(page01[14], 5),
@@ -266,11 +294,15 @@ public static class CmisMemoryMap
             0x18 => bank < laneBankCount && ((page01[47] & 0x0F) != 0 || IsSet(page01[34], 7)),
             0x19 => bank < laneBankCount && (page01[34] & 0xC0) != 0,
             0x1A or 0x1B => bank < laneBankCount && lower[57] == 1,
-            0x1C => bank < (page01[47] & 0x0F),
+            0x1C => bank < DecodeNadBankCount(page01[47], revision),
             0x1D => bank < laneBankCount && IsSet(page01[124], 7),
             >= 0x20 and <= 0x2F => ShouldCaptureVdm(page, bank, laneBankCount, page01, capturedRegions),
             >= 0x30 and <= 0x4F => bank == 0 && IsSet(page01[14], 4),
             >= 0x50 and <= 0x5F => bank == 0 && IsSet(page01[124], 6),
+            0x60 => revision.IsAtLeast54 && bank < laneBankCount && IsSet(page01[46], 7),
+            0x61 => revision.IsAtLeast54 && bank < laneBankCount && IsSet(page01[46], 6),
+            0x62 => revision.IsAtLeast54 && bank < laneBankCount && IsSet(page01[46], 5),
+            0x6D => revision.IsAtLeast54 && bank < laneBankCount && IsSet(page01[124], 5),
             0x9F => bank < DecodeCdbInstanceCount(page01[35]),
             >= 0xA0 and <= 0xAF =>
                 bank < DecodeCdbInstanceCount(page01[35])
@@ -292,6 +324,25 @@ public static class CmisMemoryMap
         2 => 4,
         _ => 1
     };
+
+    public static int DecodeLaneBankCount(ReadOnlySpan<byte> page01, CmisRevision revision)
+    {
+        if (page01.Length < 47)
+        {
+            return 1;
+        }
+
+        var legacy = DecodeLaneBankCount(page01[14]);
+        return revision.IsAtLeast54 && (page01[14] & 0x03) == 0x03
+            ? (page01[46] & 0x1F) + 1
+            : legacy;
+    }
+
+    public static int DecodeNadBankCount(byte value, CmisRevision revision) =>
+        revision.IsAtLeast54 ? value : value & 0x0F;
+
+    public static bool IsPageSupported(ReadOnlySpan<byte> page0C, byte page) =>
+        page0C.Length >= 32 && (page0C[page / 8] & (1 << (page % 8))) != 0;
 
     public static int DecodeCdbInstanceCount(byte value) => (value >> 6) switch
     {
@@ -371,8 +422,11 @@ public static class CmisMemoryMap
     private static string DisplayName(byte page) => Definition(page)?.Name ?? $"Page {page:X2}h";
 
     private static bool IsVolatile(byte page) =>
-        page is >= 0x10 and <= 0x19
+        page is 0x0D
+            or >= 0x10 and <= 0x19
+            or 0x1D
             or >= 0x24 and <= 0x2F
+            or 0x60 or 0x61 or 0x6D
             or >= 0x9F and <= 0xAF;
 
     private static bool IsSet(byte value, int bit) => (value & (1 << bit)) != 0;

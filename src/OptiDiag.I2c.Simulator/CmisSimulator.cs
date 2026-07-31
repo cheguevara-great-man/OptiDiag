@@ -5,6 +5,12 @@ using OptiDiag.I2c.Abstractions;
 
 namespace OptiDiag.I2c.Simulator;
 
+public enum CmisSimulatorRevision
+{
+    Cmis53,
+    Cmis54
+}
+
 public sealed class CmisSimulator : II2cAdapter
 {
     private readonly byte[] _lower;
@@ -14,15 +20,21 @@ public sealed class CmisSimulator : II2cAdapter
     private byte _selectedBank;
     private byte _selectedPage;
     private bool _disposed;
+    private readonly CmisSimulatorRevision _revision;
+    private readonly byte[] _firmwareLoadTag = new byte[64];
+    private long _moduleTimeOffsetNanoseconds;
 
-    public CmisSimulator()
+    public CmisSimulator(CmisSimulatorRevision revision = CmisSimulatorRevision.Cmis53)
     {
-        (_lower, _pages) = CmisSimulatorMemoryFactory.CreateSample();
+        _revision = revision;
+        (_lower, _pages) = CmisSimulatorMemoryFactory.CreateSample(revision);
     }
 
     public I2cAdapterInfo Info => new(
-        "sim-cmis53-01",
-        "CMIS 5.3 QSFP-DD 模拟模块",
+        _revision == CmisSimulatorRevision.Cmis54 ? "sim-cmis54-01" : "sim-cmis53-01",
+        _revision == CmisSimulatorRevision.Cmis54
+            ? "CMIS 5.4 QSFP-DD 模拟模块"
+            : "CMIS 5.3 QSFP-DD 模拟模块",
         "OptiDiag Simulator",
         MaximumReadLength: 128,
         MaximumWriteLength: 128);
@@ -187,10 +199,27 @@ public sealed class CmisSimulator : II2cAdapter
         }
 
         var commandId = BinaryPrimitives.ReadUInt16BigEndian(page.AsSpan(0, 2));
+        var unavailableForRevision = _revision == CmisSimulatorRevision.Cmis53
+            ? commandId is 0x0005 or 0x0006 or >= 0x010B and <= 0x010D
+            : commandId == 0x0281;
+        if (unavailableForRevision)
+        {
+            _lower[37] = 0x42; // Failed: parameter/command not supported.
+            page[6] = 0;
+            page[7] = 0;
+            _lower[8] |= 0x40;
+            return;
+        }
+
         byte[] reply = commandId switch
         {
             0x0000 => [2, 1], // Length + Host Password Accepted.
+            0x0005 when _revision == CmisSimulatorRevision.Cmis54 => EncodeModuleTime(),
+            0x0006 when _revision == CmisSimulatorRevision.Cmis54 => SetModuleTime(page),
             >= 0x0040 and <= 0x0045 => [2, 0x01], // Minimal supported-feature reply.
+            0x010B when _revision == CmisSimulatorRevision.Cmis54 => [0x03, 0x03],
+            0x010C when _revision == CmisSimulatorRevision.Cmis54 => StoreFirmwareTag(page),
+            0x010D when _revision == CmisSimulatorRevision.Cmis54 => RetrieveFirmwareTag(page),
             _ => [] // Commands not semantically simulated complete with an empty reply.
         };
         page[6] = (byte)reply.Length;
@@ -198,6 +227,55 @@ public sealed class CmisSimulator : II2cAdapter
         reply.CopyTo(page, 8);
         _lower[37] = 0x01; // Success.
         _lower[8] |= 0x40;
+    }
+
+    private byte[] EncodeModuleTime()
+    {
+        var reply = new byte[8];
+        BinaryPrimitives.WriteInt64BigEndian(reply, checked(SystemTimeNanoseconds() + _moduleTimeOffsetNanoseconds));
+        return reply;
+    }
+
+    private byte[] SetModuleTime(byte[] page)
+    {
+        var specified = BinaryPrimitives.ReadInt64BigEndian(page.AsSpan(8, 8));
+        var systemNow = SystemTimeNanoseconds();
+        var desired = page[16] == 0
+            ? specified
+            : checked(systemNow + _moduleTimeOffsetNanoseconds + specified);
+        _moduleTimeOffsetNanoseconds = checked(desired - systemNow);
+        var reply = new byte[8];
+        BinaryPrimitives.WriteInt64BigEndian(reply, desired);
+        return reply;
+    }
+
+    private static long SystemTimeNanoseconds()
+    {
+        var now = DateTimeOffset.UtcNow;
+        return checked(now.ToUnixTimeSeconds() * 1_000_000_000L
+            + (now.Ticks % TimeSpan.TicksPerSecond) * 100L);
+    }
+
+    private byte[] StoreFirmwareTag(byte[] page)
+    {
+        if (page[9] == 1)
+        {
+            Array.Clear(_firmwareLoadTag);
+        }
+        else
+        {
+            page.AsSpan(10, 64).CopyTo(_firmwareLoadTag);
+        }
+
+        return [];
+    }
+
+    private byte[] RetrieveFirmwareTag(byte[] page)
+    {
+        var reply = new byte[66];
+        reply[0] = page[8];
+        _firmwareLoadTag.CopyTo(reply, 2);
+        return reply;
     }
 
     private static byte ReplyCheckCode(ReadOnlySpan<byte> payload)
@@ -307,7 +385,8 @@ public sealed class CmisSimulator : II2cAdapter
 
 internal static class CmisSimulatorMemoryFactory
 {
-    public static (byte[] Lower, Dictionary<(byte Bank, byte Page), byte[]> Pages) CreateSample()
+    public static (byte[] Lower, Dictionary<(byte Bank, byte Page), byte[]> Pages) CreateSample(
+        CmisSimulatorRevision revision)
     {
         var lower = new byte[128];
         var page00 = new byte[128];
@@ -315,6 +394,8 @@ internal static class CmisSimulatorMemoryFactory
         var page02 = new byte[128];
         var page03 = new byte[128];
         var page04 = new byte[128];
+        var page0C = new byte[128];
+        var page0D = new byte[128];
         var page10 = new byte[128];
         var page11 = new byte[128];
         var page12 = new byte[128];
@@ -333,11 +414,15 @@ internal static class CmisSimulatorMemoryFactory
         var page2C = new byte[128];
         var page2D = new byte[128];
         var page2F = new byte[128];
+        var page60 = new byte[128];
+        var page61 = new byte[128];
+        var page62 = new byte[128];
+        var page6D = new byte[128];
         var page9F = new byte[128];
         var pageA0 = new byte[128];
 
         lower[0] = 0x18; // QSFP-DD
-        lower[1] = 0x53; // CMIS 5.3
+        lower[1] = revision == CmisSimulatorRevision.Cmis54 ? (byte)0x54 : (byte)0x53;
         lower[2] = 0x00; // Paged memory, normal configuration.
         lower[3] = 0x07; // ModuleReady, interrupt deasserted.
         lower[39] = 2;
@@ -394,6 +479,15 @@ internal static class CmisSimulatorMemoryFactory
         page01[35] = 0x71; // One CDB instance, background + auto paging, one EPL page.
         page01[47] = 0x01; // One NAD block on Page 1Ch.
         page01[124] = 0x80; // Host lane switching.
+        if (revision == CmisSimulatorRevision.Cmis54)
+        {
+            lower[61] = 0x11; // Riding heatsink + PC/UPC fiber face.
+            page01[43] = 0x00;
+            page01[44] = 0x00;
+            page01[45] = 0xC0; // Pages 0Ch and 0Dh.
+            page01[46] = 0xE0; // Pages 60h, 61h and 62h; one lane bank.
+            page01[124] |= 0x20; // Media lane switching.
+        }
         page01[127] = Checksum(page01.AsSpan(2, 125));
 
         WriteThresholdSet(page02, 0, 85, -10, 75, -5, value => (ushort)(short)Math.Round(value * 256));
@@ -418,6 +512,40 @@ internal static class CmisSimulatorMemoryFactory
         WriteSigned(page04, 72, 300);
         page04[127] = Checksum(page04.AsSpan(0, 127));
 
+        if (revision == CmisSimulatorRevision.Cmis54)
+        {
+            page04[1] |= 0x20; // 300 GHz grid.
+            WriteSigned(page04, 38, -48);
+            WriteSigned(page04, 40, 48);
+            page04[68] |= 0x40; // Programmable relative output-power thresholds.
+            page04[127] = Checksum(page04.AsSpan(0, 127));
+
+            foreach (var supportedPage in new byte[]
+                     {
+                         0x00, 0x01, 0x02, 0x03, 0x04, 0x0C, 0x0D, 0x10, 0x11, 0x12,
+                         0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1C, 0x1D,
+                         0x20, 0x24, 0x28, 0x2C, 0x2D, 0x2F, 0x60, 0x61, 0x62, 0x6D,
+                         0x9F, 0xA0
+                     })
+            {
+                page0C[supportedPage / 8] |= (byte)(1 << (supportedPage % 8));
+            }
+
+            page0C[32] = 0x54;
+            page0C[33] = 0x11;
+            page0C[34] = 0x54;
+            page0C[35] = 0x11;
+            page0C[64] = 0xBC;
+            page0C[66] = 0xFC;
+            page0C[67] = 0x80;
+
+            page0D[0] = 0x8F;
+            page0D[8] = 0x23;
+            WriteVersion(page0D, 20, 5, 4, 100, "OptiDiag active bank A");
+            WriteVersion(page0D, 56, 5, 3, 90, "OptiDiag fallback bank B");
+            WriteVersion(page0D, 92, 1, 0, 1, "OptiDiag fixed recovery");
+        }
+
         // Page 10h/11h: direct controls, staged control set, initialized lanes and mapping.
         for (var lane = 0; lane < 8; lane++)
         {
@@ -441,11 +569,16 @@ internal static class CmisSimulatorMemoryFactory
         // Page 12h: tunable controls/status at 193.1 THz.
         for (var lane = 0; lane < 8; lane++)
         {
-            page12[lane] = 0x40; // 50 GHz grid.
+            page12[lane] = revision == CmisSimulatorRevision.Cmis54 ? (byte)0x42 : (byte)0x40;
             WriteSigned(page12, 8 + lane * 2, (short)lane);
             WriteSigned(page12, 24 + lane * 2, 0);
             WriteUnsigned32(page12, 40 + lane * 4, (uint)(193_100_000 + lane * 50_000));
             WriteSigned(page12, 72 + lane * 2, -100);
+        }
+        if (revision == CmisSimulatorRevision.Cmis54)
+        {
+            page12[88] = 0x21; // +1.5 dB alarm, +1.0 dB warning.
+            page12[89] = 0x21; // -1.5 dB alarm, -1.0 dB warning.
         }
 
         // Page 13h/14h: diagnostics with BER results.
@@ -501,6 +634,10 @@ internal static class CmisSimulatorMemoryFactory
         page1C[3] = 0xFF;
         page1C[4] = 0xFF;
         page1C[5] = 0x80;
+        if (revision == CmisSimulatorRevision.Cmis54)
+        {
+            page1C[6] = 0x12; // Host GID 1, media GID 2.
+        }
         page1C[8] = 0xFF;
 
         // Page 1Dh: identity permutation, enabled and successfully committed.
@@ -536,6 +673,32 @@ internal static class CmisSimulatorMemoryFactory
         page2C[0] = 0x01;
         page2D[0] = 0xF0;
 
+        if (revision == CmisSimulatorRevision.Cmis54)
+        {
+            page60[0] = 0x00;
+            page60[1] = 0x00;
+            page60[2] = 0xF0;
+            for (var lane = 0; lane < 8; lane++)
+            {
+                WriteUnsigned(page61, lane * 2, (ushort)(12 + lane));
+                WriteUnsigned(page61, 16 + lane * 2, (ushort)(10 + lane));
+                WriteUnsigned(page61, 32 + lane * 2, (ushort)(4 + lane));
+                WriteUnsigned(page61, 48 + lane * 2, (ushort)(3 + lane));
+                WriteSigned(page62, lane * 8, 200);
+                WriteSigned(page62, lane * 8 + 2, -300);
+                WriteSigned(page62, lane * 8 + 4, 150);
+                WriteSigned(page62, lane * 8 + 6, -200);
+                page6D[8 + lane] = (byte)(lane + 1);
+                page6D[40 + lane] = 1;
+                page6D[56 + lane] = (byte)(lane + 1);
+            }
+
+            page6D[0] = 0x40;
+            page6D[24] = 1;
+            page2F[0] |= 0x08; // Monitoring duty-cycle support.
+            page2F[16] = 5 << 2; // Process 50% of VDM samples.
+        }
+
         // CDB instance 1, showing a completed Query Status reply in local payload.
         WriteUnsigned(page9F, 0, 0x0000);
         WriteUnsigned(page9F, 2, 0);
@@ -553,6 +716,8 @@ internal static class CmisSimulatorMemoryFactory
             [(0, 0x02)] = page02,
             [(0, 0x03)] = page03,
             [(0, 0x04)] = page04,
+            [(0, 0x0C)] = page0C,
+            [(0, 0x0D)] = page0D,
             [(0, 0x10)] = page10,
             [(0, 0x11)] = page11,
             [(0, 0x12)] = page12,
@@ -571,9 +736,22 @@ internal static class CmisSimulatorMemoryFactory
             [(0, 0x2C)] = page2C,
             [(0, 0x2D)] = page2D,
             [(0, 0x2F)] = page2F,
+            [(0, 0x60)] = page60,
+            [(0, 0x61)] = page61,
+            [(0, 0x62)] = page62,
+            [(0, 0x6D)] = page6D,
             [(0, 0x9F)] = page9F,
             [(0, 0xA0)] = pageA0
         });
+    }
+
+    private static void WriteVersion(
+        byte[] target, int offset, byte major, byte minor, ushort build, string extra)
+    {
+        target[offset] = major;
+        target[offset + 1] = minor;
+        WriteUnsigned(target, offset + 2, build);
+        WriteAscii(target, offset + 4, 32, extra);
     }
 
     private static void WriteThresholdSet(

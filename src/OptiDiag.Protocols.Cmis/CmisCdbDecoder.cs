@@ -29,7 +29,11 @@ internal static class CmisCdbDecoder
         sink.Add(category, "CMDID",
             definition is null ? $"0x{commandId:X4}（保留/自定义）" : $"0x{commandId:X4} {definition.Title}",
             CmisDecoderHelpers.Source(0x9F, 128, region.Bank),
-            definition is null ? "未由 CMIS 5.3 基础规范定义。" : $"{definition.Group}，CMIS {definition.Section}");
+            definition is null
+                ? "未由 CMIS 5.3/5.4 基础规范定义。"
+                : $"{definition.Group}，CMIS {definition.Section}；引入版本 {definition.IntroducedRevision}"
+                    + (definition.RemovedRevision is { } removed ? $"；自 {removed} 移除" : string.Empty)
+                    + (definition.IsObsolescent ? "；已不建议使用" : string.Empty));
         sink.Add(category, "EPLLength", BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(2, 2)),
             CmisDecoderHelpers.Source(0x9F, 130, region.Bank), unit: "bytes");
         sink.Add(category, "LPLLength", data[4],

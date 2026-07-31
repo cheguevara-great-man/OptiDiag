@@ -65,6 +65,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     private string _cdbExtendedPayloadHex = string.Empty;
     private int _cdbInstance = 1;
     private string _cdbResult = "请选择 CMIS 数据源并连接，然后可执行 CDB 命令。";
+    private byte _cdbCatalogRevision;
 
     public MainWindowViewModel(
         ModuleSession session,
@@ -90,10 +91,15 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
                 true,
                 "内置 SFF-8472 模拟器，可选择是否包含 SFF-8690。"),
             new DataSourceOption(
-                "simulator-cmis",
+                "simulator-cmis53",
                 "模拟 CMIS 5.3 模块",
                 true,
                 "内置 QSFP-DD CMIS 5.3 分页模块，包含 8 通道监控、阈值、状态和可写控制页。"),
+            new DataSourceOption(
+                "simulator-cmis54",
+                "模拟 CMIS 5.4 模块",
+                true,
+                "内置 QSFP-DD CMIS 5.4 模块，包含新增页面、300 GHz、扩展通道能力和新增 CDB。"),
             new DataSourceOption(
                 "hardware",
                 "真实 I²C 适配器（自动检测）",
@@ -101,7 +107,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
                 "协议自动检测已实现；需要具体 USB-I²C 设备型号后加载对应适配器。")
         ];
         _selectedDataSource = DataSources[0];
-        CmisCdbCommands = CmisCdbCommandCatalog.Commands;
+        RefreshCdbCatalog(CmisRevision.V53);
         _selectedCdbCommand = CmisCdbCommands[0];
         _logPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -136,7 +142,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     public ICollectionView RegisterView { get; }
 
     public IReadOnlyList<DataSourceOption> DataSources { get; }
-    public IReadOnlyList<CmisCdbCommandDefinition> CmisCdbCommands { get; }
+    public ObservableCollection<CmisCdbCommandDefinition> CmisCdbCommands { get; } = [];
     public IReadOnlyList<int> CdbInstances { get; } = [1, 2];
 
     public ModuleInformation? Information
@@ -275,6 +281,11 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         {
             if (SetProperty(ref _selectedCdbCommand, value))
             {
+                if (value is not null && CmisCdbPayloadRules.Find(value.Id) is { } rule)
+                {
+                    CdbLocalPayloadHex = string.Join(' ', Enumerable.Repeat("00", rule.MinimumLocalLength));
+                    CdbExtendedPayloadHex = string.Join(' ', Enumerable.Repeat("00", rule.MinimumExtendedLength));
+                }
                 OnPropertyChanged(nameof(CdbParameterHelp));
             }
         }
@@ -427,7 +438,16 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
         SelectedDataSource = option;
         ClearDecodedData();
-        CdbResult = option.Key == "simulator-cmis"
+        if (option.Key == "simulator-cmis54")
+        {
+            RefreshCdbCatalog(CmisRevision.V54);
+        }
+        else if (option.Key == "simulator-cmis53")
+        {
+            RefreshCdbCatalog(CmisRevision.V53);
+        }
+
+        CdbResult = option.Key.StartsWith("simulator-cmis", StringComparison.Ordinal)
             ? "已选择 CMIS 数据源；连接并完成自动检测后即可执行 CDB 命令。"
             : "CDB 仅适用于自动检测为 CMIS 的数据源。";
         StatusMessage = option.IsAvailable
@@ -689,6 +709,11 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         OnPropertyChanged(nameof(ActiveAlarmCount));
         OnPropertyChanged(nameof(ProtocolDetectionEvidence));
         OnPropertyChanged(nameof(IsCmisActive));
+        var lower = snapshot.Dump.FindRegion(CmisMemoryMap.LowerRegionId)?.Data;
+        if (IsCmisActive && lower is { Length: > 1 })
+        {
+            RefreshCdbCatalog(new CmisRevision(lower[1]));
+        }
         if (IsCmisActive
             && (CdbResult.StartsWith("已选择 CMIS", StringComparison.Ordinal)
                 || CdbResult.StartsWith("请选择 CMIS", StringComparison.Ordinal)
@@ -708,6 +733,26 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         {
             StatusMessage += $" {snapshot.CaptureWarnings.Count} 个可选区域失败。";
         }
+    }
+
+    private void RefreshCdbCatalog(CmisRevision revision)
+    {
+        if (_cdbCatalogRevision == revision.Raw && CmisCdbCommands.Count > 0)
+        {
+            return;
+        }
+
+        _cdbCatalogRevision = revision.Raw;
+        var selectedId = SelectedCdbCommand?.Id;
+        var commands = CmisCdbCommandCatalog.ForRevision(revision);
+        CmisCdbCommands.Clear();
+        foreach (var command in commands)
+        {
+            CmisCdbCommands.Add(command);
+        }
+
+        SelectedCdbCommand = CmisCdbCommands.FirstOrDefault(x => x.Id == selectedId)
+            ?? CmisCdbCommands.FirstOrDefault();
     }
 
     private void ClearDecodedData()

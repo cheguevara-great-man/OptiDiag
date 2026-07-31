@@ -25,6 +25,18 @@ public sealed class CmisProtocolTests
     }
 
     [Fact]
+    public async Task Detector_RecognizesOfficialCmis54Revision()
+    {
+        await using var adapter = new CmisSimulator(CmisSimulatorRevision.Cmis54);
+        await adapter.OpenAsync();
+
+        var detection = await new ProtocolDetectionService().DetectAsync(adapter);
+
+        Assert.Equal("cmis", detection.ProtocolId);
+        Assert.Contains("5.4", detection.Evidence);
+    }
+
+    [Fact]
     public async Task Session_DecodesIdentityThresholdsAndEightLanes()
     {
         await using var session = new ModuleSession(new CmisSimulator(), new CmisProtocol());
@@ -127,21 +139,28 @@ public sealed class CmisProtocolTests
 
         Assert.DoesNotContain(
             new CmisProtocol().CapturePlan,
-            region => region.Page is >= 0x0C and <= 0x0F or 0x2E or >= 0x60 and <= 0x9E);
+            region => region.Page is >= 0x0E and <= 0x0F or 0x2E
+                or >= 0x63 and <= 0x6C or >= 0x6E and <= 0x9E);
+        Assert.Contains(new CmisProtocol().CapturePlan, region => region.Page == 0x0C);
+        Assert.Contains(new CmisProtocol().CapturePlan, region => region.Page == 0x6D);
     }
 
     [Fact]
     public void CdbCatalog_ContainsAllBaseSpecificationCommands()
     {
-        Assert.Equal(48, CmisCdbCommandCatalog.Commands.Count);
-        Assert.Equal(48, CmisCdbCommandCatalog.Commands.Select(command => command.Id).Distinct().Count());
-        Assert.Equal(48, CmisCdbPayloadRules.Rules.Count);
+        Assert.Equal(53, CmisCdbCommandCatalog.Commands.Count);
+        Assert.Equal(53, CmisCdbCommandCatalog.Commands.Select(command => command.Id).Distinct().Count());
+        Assert.Equal(53, CmisCdbPayloadRules.Rules.Count);
         Assert.Equal(
             CmisCdbCommandCatalog.Commands.Select(command => command.Id).Order(),
             CmisCdbPayloadRules.Rules.Select(rule => rule.CommandId).Order());
         Assert.Equal("Query Status", CmisCdbCommandCatalog.Find(0x0000)?.Title);
         Assert.Equal("Commit Firmware Image", CmisCdbCommandCatalog.Find(0x010A)?.Title);
         Assert.Equal("Get Digest Signature in EPL", CmisCdbCommandCatalog.Find(0x0405)?.Title);
+        Assert.Equal(48, CmisCdbCommandCatalog.ForRevision(CmisRevision.V53).Count);
+        Assert.Equal(52, CmisCdbCommandCatalog.ForRevision(CmisRevision.V54).Count);
+        Assert.DoesNotContain(CmisCdbCommandCatalog.ForRevision(CmisRevision.V53), item => item.Id == 0x0005);
+        Assert.DoesNotContain(CmisCdbCommandCatalog.ForRevision(CmisRevision.V54), item => item.Id == 0x0281);
         Assert.Null(CmisCdbCommandCatalog.Find(0x4000)); // CMIS-VCS supplement, not base CMIS.
     }
 
@@ -227,6 +246,110 @@ public sealed class CmisProtocolTests
         Assert.Contains(fields, field => field.Name == "Bank0VDMGroupsSupported" && field.Value == "1");
         Assert.Contains(fields, field => field.Name == "VDM1 Laser Temperature");
         Assert.Contains(fields, field => field.Name == "CMDID" && field.Value.Contains("Query Status"));
+    }
+
+    [Fact]
+    public async Task Cmis54Simulator_CapturesAndDecodesNewPagesAndFields()
+    {
+        await using var session = new ModuleSession(
+            new CmisSimulator(CmisSimulatorRevision.Cmis54),
+            new CmisProtocol());
+        await session.ConnectAsync();
+
+        var snapshot = await session.RefreshAsync();
+        var pages = snapshot.Dump.Regions.Where(region => region.Page.HasValue)
+            .Select(region => region.Page!.Value).ToHashSet();
+        var fields = snapshot.Module.Fields ?? [];
+
+        Assert.Equal("5.4", snapshot.Module.Protocol?.Revision);
+        Assert.Equal("5.4", snapshot.Dump.ProtocolRevision);
+        foreach (var page in new byte[] { 0x0C, 0x0D, 0x60, 0x61, 0x62, 0x6D })
+        {
+            Assert.Contains(page, pages);
+        }
+
+        Assert.Contains(fields, field => field.Name == "GridSupported300GHz" && field.Value == "是");
+        Assert.Contains(fields, field => field.Name == "SFF8024HeatsinkType" && field.Value.Contains("RHS"));
+        Assert.Contains(fields, field => field.Name == "ConsolidatedLoadManagementRevision" && field.Value == "5.4");
+        Assert.Contains(fields, field => field.Name == "TxLaneAcquisitionCounter1" && field.Value == "12");
+        Assert.Contains(fields, field => field.Name == "Lane1TxPowerHighAlarm" && field.Value.Contains("2"));
+        Assert.Contains(fields, field => field.Name == "Lane1CommitResult" && field.Value == "Success");
+        Assert.Contains(snapshot.Module.Registers, register => register.Page == 0x60 && register.Offset == 192
+            && register.Access == RegisterAccess.WriteOnlySelfClearing);
+        Assert.Contains(snapshot.Module.Registers, register => register.Page == 0x12 && register.Offset == 216
+            && register.Access == RegisterAccess.ReadWrite);
+    }
+
+    [Fact]
+    public async Task Cmis54Cdb_ModuleTimeAndFirmwareLoadTagRoundTrip()
+    {
+        await using var session = new ModuleSession(
+            new CmisSimulator(CmisSimulatorRevision.Cmis54),
+            new CmisProtocol());
+        await session.ConnectAsync();
+        await session.RefreshAsync();
+        var executor = new CmisCdbExecutor(new SessionCdbMemoryAccess(session));
+
+        var timeResult = await executor.ExecuteAsync(new CmisCdbCommand(0x0005));
+        var timeFields = CmisCdbReplyDecoder.Decode(new CmisCdbCommand(0x0005), timeResult.Reply);
+        Assert.True(timeResult.Success);
+        Assert.Contains(timeFields, field => field.Name == "ModuleTimeUtc");
+
+        var updater = new CmisFirmwareUpdateService(executor);
+        Assert.True((await updater.StoreLoadTagAsync(0, "release-5.4")).Success);
+        var tagResult = await updater.RetrieveLoadTagAsync(0);
+        var tagFields = CmisCdbReplyDecoder.Decode(new CmisCdbCommand(0x010D, [0]), tagResult.Reply);
+        Assert.Contains(tagFields, field => field.Name == "FirmwareLoadTag" && field.Value == "release-5.4");
+    }
+
+    [Fact]
+    public async Task Cmis53Simulator_RejectsCmis54OnlyCommand()
+    {
+        await using var session = new ModuleSession(new CmisSimulator(), new CmisProtocol());
+        await session.ConnectAsync();
+        await session.RefreshAsync();
+        var executor = new CmisCdbExecutor(new SessionCdbMemoryAccess(session));
+
+        var result = await executor.ExecuteAsync(new CmisCdbCommand(0x0005));
+
+        Assert.False(result.Success);
+        Assert.Equal(0x42, result.Status);
+    }
+
+    [Fact]
+    public void Cmis54_ExtendedLaneAndNadCountsUseEscapeEncoding()
+    {
+        var page01 = new byte[128];
+        page01[14] = 0x03;
+        page01[46] = 31;
+        page01[47] = 255;
+
+        Assert.Equal(32, CmisMemoryMap.DecodeLaneBankCount(page01, CmisRevision.V54));
+        Assert.Equal(1, CmisMemoryMap.DecodeLaneBankCount(page01, CmisRevision.V53));
+        Assert.Equal(255, CmisMemoryMap.DecodeNadBankCount(page01[47], CmisRevision.V54));
+        Assert.Equal(15, CmisMemoryMap.DecodeNadBankCount(page01[47], CmisRevision.V53));
+    }
+
+    [Fact]
+    public void Cmis54_InterfaceDescriptionUsesCorrectedOffsetsAndExactFields()
+    {
+        var payload = Enumerable.Repeat((byte)0x20, 96).ToArray();
+        payload[1] = 0x11;
+        payload[2] = 0;
+        System.Text.Encoding.ASCII.GetBytes("400ZR").CopyTo(payload, 3);
+        payload[90] = 0;
+        payload[91] = 2;
+        payload[92] = 0x40;
+        payload[93] = 0;
+        var command = new CmisCdbCommand(0x0051, [0, 0x11, 0]);
+        var reply = new CmisCdbReply(0x0051, 96, payload, [], 0, 0, true,
+            CmisCdbCommandCatalog.Find(0x0051));
+
+        var decoded = CmisCdbReplyDecoder.Decode(command, reply);
+
+        Assert.Contains(decoded, item => item.Name == "InterfaceName" && item.Value.StartsWith("400ZR"));
+        Assert.Contains(decoded, item => item.Name == "BitsPerSymbol" && item.Value == "2");
+        Assert.Contains(decoded, item => item.Name == "BitsPerSymbolExact" && item.Value == "2");
     }
 
     [Fact]
