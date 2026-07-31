@@ -19,7 +19,11 @@ public partial class RegisterAccessDialog : Window
     {
         InitializeComponent();
         Register = register;
-        _canWrite = register.Access is not (RegisterAccess.ReadOnly or RegisterAccess.Reserved);
+        _canWrite = register.Access is RegisterAccess.ReadWrite
+            or RegisterAccess.ReadWriteSelfClearing
+            or RegisterAccess.WriteOnly
+            or RegisterAccess.WriteOnlySelfClearing
+            or RegisterAccess.VendorSpecific;
         AddressText.Text = register.AddressText;
         CurrentValueText.Text = $"0x{register.HexValue}";
         AccessText.Text = AccessDisplay(register.Access);
@@ -87,8 +91,12 @@ public partial class RegisterAccessDialog : Window
     private static string AccessDisplay(RegisterAccess access) => access switch
     {
         RegisterAccess.ReadOnly => "只读（禁止写入）",
+        RegisterAccess.ReadOnlyClearOnRead => "只读/读清除（禁止写入）",
         RegisterAccess.ReadWrite => "可读写",
+        RegisterAccess.ReadWriteSelfClearing => "读写/写 1 自清除",
         RegisterAccess.WriteOnly => "只写",
+        RegisterAccess.WriteOnlySelfClearing => "只写/写 1 自清除",
+        RegisterAccess.Mixed => "混合字段（请使用协议操作）",
         RegisterAccess.Reserved => "保留（禁止写入）",
         RegisterAccess.VendorSpecific => "厂商定义（允许写入）",
         _ => access.ToString()

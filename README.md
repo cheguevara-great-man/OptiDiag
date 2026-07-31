@@ -12,7 +12,10 @@ OptiDiag 是一套使用 C#、.NET 10 和 WPF 开发的光模块固件调试上�
 - Page 03h 的光模块/回环模块高精度时延、压缩日期、q8.16/q8.8/q16.16 及实时修正公式。
 - SFF-8690 Rev 1.5 能力、频率网格、通道/波长、误差、当前状态和锁存状态。
 - RPM Page 20h-24h 重组为第二个 SFF-8472 模块完整解码；Page 25h 保留、Page 26h-27h 厂商数据原样显示。
-- CMIS 5.3 的平面/分页内存检测，Page 00h 身份、Page 01h 能力、Page 02h 阈值、Page 03h 用户 EEPROM、Banked Page 10h 控制和 Page 11h 通道状态。
+- CMIS 5.3 基础规范的 Lower、Page 00h–04h、10h–1Dh、20h–2Fh、9Fh/A0h–AFh 动态采集、字段解析和访问权限。
+- CMIS 可调谐激光器、PRBS/BER/SNR 诊断、时延、Network Path、NAD、Host Lane Switching 和完整 VDM 关联解析。
+- CMIS 5.3 基础规范定义的 48 个 CDB 命令目录、逐命令 LPL/EPL 合同、校验、执行状态机和常用回复语义解析。
+- CMIS 固件 Start/LPL 或 EPL 分块写入/Complete/失败 Abort 流程；Run 与 Commit 保持显式操作，不自动复位。
 - CMIS 模块温度/电压、最多 32 通道的 Tx 光功率、偏置电流、Rx 光功率、通道告警、输出状态和数据通道状态。
 - CMIS Bank Select + Page Select 原子选择、选择值读回校验，以及带 Bank 地址的原始寄存器读写。
 - CC_BASE、CC_EXT、CC_DMI、Page 03h CC_CALIB 校验。
@@ -59,6 +62,7 @@ dotnet test .\OptiDiag.sln
 6. [测试、调试和发布](docs/05-测试调试与发布.md)
 7. [SFF-8472/SFF-8690 实现覆盖清单](docs/06-SFF-8472与SFF-8690实现覆盖清单.md)
 8. [CMIS 协议与实现导读](docs/07-CMIS协议与实现导读.md)
+9. [CMIS 5.3 覆盖矩阵](docs/08-CMIS-5.3覆盖矩阵.md)
 
 ## 设计边界
 
