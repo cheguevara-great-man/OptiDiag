@@ -35,7 +35,8 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 {
     private readonly ModuleSession _session;
     private readonly PollingEngine _poller;
-    private readonly Sff8472Simulator _simulator;
+    private readonly SwitchableI2cAdapter _adapter;
+    private readonly Sff8472Simulator _sff8472Simulator;
     private readonly DumpFileService _dumpFiles;
     private readonly DumpComparisonService _dumpComparer;
     private readonly CsvExportService _csvExporter;
@@ -61,24 +62,31 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     public MainWindowViewModel(
         ModuleSession session,
         PollingEngine poller,
-        Sff8472Simulator simulator,
+        SwitchableI2cAdapter adapter,
+        Sff8472Simulator sff8472Simulator,
         DumpFileService dumpFiles,
         DumpComparisonService dumpComparer,
         CsvExportService csvExporter)
     {
         _session = session;
         _poller = poller;
-        _simulator = simulator;
+        _adapter = adapter;
+        _sff8472Simulator = sff8472Simulator;
         _dumpFiles = dumpFiles;
         _dumpComparer = dumpComparer;
         _csvExporter = csvExporter;
         DataSources =
         [
             new DataSourceOption(
-                "simulator",
-                "软件模拟模块",
+                "simulator-sff8472",
+                "模拟 SFF-8472 模块",
                 true,
                 "内置 SFF-8472 模拟器，可选择是否包含 SFF-8690。"),
+            new DataSourceOption(
+                "simulator-cmis",
+                "模拟 CMIS 5.3 模块",
+                true,
+                "内置 QSFP-DD CMIS 5.3 分页模块，包含 8 通道监控、阈值、状态和可写控制页。"),
             new DataSourceOption(
                 "hardware",
                 "真实 I²C 适配器（自动检测）",
@@ -165,12 +173,17 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
             if (SetProperty(ref _selectedDataSource, value))
             {
                 OnPropertyChanged(nameof(IsSimulatorSelected));
+                OnPropertyChanged(nameof(IsSffSimulatorSelected));
                 OnPropertyChanged(nameof(DataSourceDisplay));
             }
         }
     }
 
-    public bool IsSimulatorSelected => SelectedDataSource.Key == "simulator";
+    public bool IsSimulatorSelected =>
+        SelectedDataSource.Key.StartsWith("simulator-", StringComparison.Ordinal);
+
+    public bool IsSffSimulatorSelected =>
+        SelectedDataSource.Key == "simulator-sff8472";
 
     public string DataSourceDisplay => SelectedDataSource.DisplayName;
 
@@ -281,6 +294,11 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
             await DisconnectAsync().ConfigureAwait(true);
         }
 
+        if (option.IsAvailable && option.Key.StartsWith("simulator-", StringComparison.Ordinal))
+        {
+            await _adapter.SelectAsync(option.Key).ConfigureAwait(true);
+        }
+
         SelectedDataSource = option;
         ClearDecodedData();
         StatusMessage = option.IsAvailable
@@ -297,7 +315,12 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         }
 
         await StopPollingAsync().ConfigureAwait(true);
-        _simulator.SetSff8690Enabled(enabled);
+        if (!IsSffSimulatorSelected)
+        {
+            throw new InvalidOperationException("SFF-8690 选项只适用于 SFF-8472 模拟模块。");
+        }
+
+        _sff8472Simulator.SetSff8690Enabled(enabled);
         SimulateSff8690 = enabled;
         StatusMessage = enabled
             ? "模拟模块已启用 SFF-8690；自动检测应显示 8472 + 8690。"
@@ -318,7 +341,12 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         }
 
         await StopPollingAsync().ConfigureAwait(true);
-        _simulator.SetRemotePerformanceMonitoringEnabled(enabled);
+        if (!IsSffSimulatorSelected)
+        {
+            throw new InvalidOperationException("RPM 选项只适用于 SFF-8472 模拟模块。");
+        }
+
+        _sff8472Simulator.SetRemotePerformanceMonitoringEnabled(enabled);
         SimulateRemotePerformanceMonitoring = enabled;
         StatusMessage = enabled
             ? "模拟模块已启用 RPM；将采集 Page 20h-27h 并解码远端第二模块。"
@@ -446,7 +474,9 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         var value = await _session.ReadByteAsync(
             register.DeviceAddress,
             register.Page,
-            checked((byte)register.Offset)).ConfigureAwait(true);
+            checked((byte)register.Offset),
+            bank: register.Bank,
+            bankSelectOffset: register.Bank.HasValue ? (byte)126 : null).ConfigureAwait(true);
         var updated = register with { Value = value };
         UpdateRegisterValue(register, updated);
         StatusMessage = $"已读取 {updated.AddressText} = 0x{updated.HexValue}。";
@@ -482,7 +512,9 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
             register.DeviceAddress,
             register.Page,
             checked((byte)register.Offset),
-            value).ConfigureAwait(true);
+            value,
+            bank: register.Bank,
+            bankSelectOffset: register.Bank.HasValue ? (byte)126 : null).ConfigureAwait(true);
         AddLog("WARN", $"写寄存器 {register.AddressText}: {register.HexValue} -> {value:X2}");
         await RefreshAsync().ConfigureAwait(true);
         StatusMessage = $"已写入 {register.AddressText}：0x{register.HexValue} → 0x{value:X2}，并完成重新读取。";

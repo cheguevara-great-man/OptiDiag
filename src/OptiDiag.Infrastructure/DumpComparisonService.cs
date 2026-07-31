@@ -6,13 +6,16 @@ public sealed record ByteDifference(
     string RegionId,
     byte DeviceAddress,
     byte? Page,
+    byte? Bank,
     int Offset,
     byte? Left,
     byte? Right,
     bool IsVolatile)
 {
-    public string Address => Page.HasValue
-        ? $"0x{DeviceAddress:X2} P{Page:X2}:{Offset:X2}"
+    public string Address => Page.HasValue && Bank.HasValue
+        ? $"0x{DeviceAddress:X2} B{Bank:X2} P{Page:X2}:{Offset:X2}"
+        : Page.HasValue
+            ? $"0x{DeviceAddress:X2} P{Page:X2}:{Offset:X2}"
         : $"0x{DeviceAddress:X2}:{Offset:X2}";
 
     public string LeftHex => Left.HasValue ? $"{Left:X2}" : "--";
@@ -57,6 +60,7 @@ public sealed class DumpComparisonService
                     id,
                     reference.DeviceAddress,
                     reference.Page,
+                    reference.Bank,
                     offsetBase + index,
                     leftValue,
                     rightValue,

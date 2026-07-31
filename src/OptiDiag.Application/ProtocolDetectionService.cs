@@ -40,13 +40,8 @@ public sealed class ProtocolDetectionService
         {
             0x02 or 0x03 => DetectSff8472(header),
             0x0D or 0x11 => DetectQsfp(header),
-            0x18 or 0x19 or 0x1E or 0x1F or 0x20 or 0x21 or 0x22 or 0x26 =>
-                new ProtocolDetectionResult(
-                    identifier,
-                    "cmis",
-                    "CMIS",
-                    $"Identifier=0x{identifier:X2} 指向采用 CMIS 的模块类型。",
-                    []),
+            0x18 or 0x19 or 0x1E or 0x1F or 0x20 or 0x21 or 0x22
+                or 0x23 or 0x24 or 0x25 or 0x26 => DetectCmis(header),
             _ => new ProtocolDetectionResult(
                 identifier,
                 "unknown",
@@ -85,6 +80,18 @@ public sealed class ProtocolDetectionService
             legacy ? "sff-8436" : "sff-8636",
             legacy ? "SFF-8436" : "SFF-8636",
             $"Identifier=0x{header[0]:X2}；Revision Compliance=0x{revision:X2}。",
+            []);
+    }
+
+    private static ProtocolDetectionResult DetectCmis(byte[] header)
+    {
+        var revision = $"{header[1] >> 4}.{header[1] & 0x0F}";
+        var memoryModel = (header[2] & 0x80) == 0 ? "分页内存" : "平面内存";
+        return new ProtocolDetectionResult(
+            header[0],
+            "cmis",
+            "CMIS",
+            $"Identifier=0x{header[0]:X2}，CMISRevision=0x{header[1]:X2}（{revision}），{memoryModel}。",
             []);
     }
 }

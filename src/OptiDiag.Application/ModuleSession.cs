@@ -12,7 +12,7 @@ public sealed record SessionSnapshot(
 public sealed class ModuleSession : IAsyncDisposable
 {
     private readonly II2cAdapter _adapter;
-    private readonly IOpticalModuleProtocol _protocol;
+    private readonly IReadOnlyDictionary<string, IOpticalModuleProtocol> _protocols;
     private readonly ModuleMemoryService _memory;
     private readonly ProtocolDetectionService _detector;
     private bool _disposed;
@@ -21,9 +21,22 @@ public sealed class ModuleSession : IAsyncDisposable
         II2cAdapter adapter,
         IOpticalModuleProtocol protocol,
         ProtocolDetectionService? detector = null)
+        : this(adapter, new[] { protocol }, detector)
+    {
+    }
+
+    public ModuleSession(
+        II2cAdapter adapter,
+        IEnumerable<IOpticalModuleProtocol> protocols,
+        ProtocolDetectionService? detector = null)
     {
         _adapter = adapter;
-        _protocol = protocol;
+        _protocols = protocols.ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
+        if (_protocols.Count == 0)
+        {
+            throw new ArgumentException("至少需要注册一个光模块协议。", nameof(protocols));
+        }
+
         _memory = new ModuleMemoryService(adapter);
         _detector = detector ?? new ProtocolDetectionService();
         _adapter.TransferCompleted += OnTransferCompleted;
@@ -33,7 +46,10 @@ public sealed class ModuleSession : IAsyncDisposable
 
     public I2cAdapterInfo AdapterInfo => _adapter.Info;
 
-    public IOpticalModuleProtocol Protocol => _protocol;
+    public IOpticalModuleProtocol Protocol =>
+        ActiveProtocol ?? _protocols.Values.First();
+
+    public IOpticalModuleProtocol? ActiveProtocol { get; private set; }
 
     public SessionSnapshot? Latest { get; private set; }
 
@@ -55,22 +71,22 @@ public sealed class ModuleSession : IAsyncDisposable
         }
 
         var detection = await _detector.DetectAsync(_adapter, cancellationToken).ConfigureAwait(false);
-        if (!detection.IsSupportedBy(_protocol.Id))
+        if (!_protocols.TryGetValue(detection.ProtocolId, out var protocol))
         {
             throw new NotSupportedException(
-                $"自动检测到 {detection.ProtocolName}，当前会话加载的是 {_protocol.DisplayName}。"
-                + " 请安装对应协议模块后再读取。");
+                $"自动检测到 {detection.ProtocolName}，但当前会话未注册对应协议模块。");
         }
 
-        var capture = await _memory.CaptureAsync(_protocol, cancellationToken).ConfigureAwait(false);
-        if (!_protocol.CanDecode(capture.Dump))
+        ActiveProtocol = protocol;
+        var capture = await _memory.CaptureAsync(protocol, cancellationToken).ConfigureAwait(false);
+        if (!protocol.CanDecode(capture.Dump))
         {
-            throw new InvalidDataException($"当前数据无法按 {_protocol.DisplayName} 解码。");
+            throw new InvalidDataException($"当前数据无法按 {protocol.DisplayName} 解码。");
         }
 
         var snapshot = new SessionSnapshot(
             capture.Dump,
-            _protocol.Decode(capture.Dump),
+            protocol.Decode(capture.Dump),
             capture.Warnings,
             detection);
         Latest = snapshot;
@@ -83,15 +99,32 @@ public sealed class ModuleSession : IAsyncDisposable
         byte? page,
         byte offset,
         byte value,
-        CancellationToken cancellationToken = default) =>
-        _memory.WriteByteAsync(deviceAddress, page, offset, value, cancellationToken: cancellationToken);
+        CancellationToken cancellationToken = default,
+        byte? bank = null,
+        byte? bankSelectOffset = null) =>
+        _memory.WriteByteAsync(
+            deviceAddress,
+            page,
+            offset,
+            value,
+            bank: bank,
+            bankSelectOffset: bankSelectOffset,
+            cancellationToken: cancellationToken);
 
     public Task<byte> ReadByteAsync(
         byte deviceAddress,
         byte? page,
         byte offset,
-        CancellationToken cancellationToken = default) =>
-        _memory.ReadByteAsync(deviceAddress, page, offset, cancellationToken: cancellationToken);
+        CancellationToken cancellationToken = default,
+        byte? bank = null,
+        byte? bankSelectOffset = null) =>
+        _memory.ReadByteAsync(
+            deviceAddress,
+            page,
+            offset,
+            bank: bank,
+            bankSelectOffset: bankSelectOffset,
+            cancellationToken: cancellationToken);
 
     private void OnTransferCompleted(object? sender, I2cTraceEntry entry) => TransferCompleted?.Invoke(this, entry);
 
