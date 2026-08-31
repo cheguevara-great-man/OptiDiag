@@ -1,0 +1,50 @@
+name: build-test-package
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore OptiDiag.sln
+
+      - name: Build
+        run: dotnet build OptiDiag.sln --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test OptiDiag.sln --configuration Release --no-build --logger "trx;LogFileName=tests.trx"
+
+      - name: Publish self-contained Windows package
+        run: dotnet publish src/OptiDiag.App/OptiDiag.App.csproj --configuration Release --runtime win-x64 --self-contained true --output artifacts/OptiDiag-win-x64
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: "**/TestResults/*.trx"
+          if-no-files-found: warn
+
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: OptiDiag-win-x64
+          path: artifacts/OptiDiag-win-x64

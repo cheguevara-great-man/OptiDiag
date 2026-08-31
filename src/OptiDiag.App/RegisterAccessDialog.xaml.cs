@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Windows;
+using OptiDiag.Application;
 using OptiDiag.Protocols.Abstractions;
 
 namespace OptiDiag.App;
@@ -19,14 +20,12 @@ public partial class RegisterAccessDialog : Window
     {
         InitializeComponent();
         Register = register;
-        _canWrite = register.Access is RegisterAccess.ReadWrite
-            or RegisterAccess.ReadWriteSelfClearing
-            or RegisterAccess.WriteOnly
-            or RegisterAccess.WriteOnlySelfClearing
-            or RegisterAccess.VendorSpecific;
+        var assessment = RegisterWritePolicy.Assess(register);
+        _canWrite = assessment.IsAllowed;
         AddressText.Text = register.AddressText;
         CurrentValueText.Text = $"0x{register.HexValue}";
         AccessText.Text = AccessDisplay(register.Access);
+        RiskText.Text = $"{assessment.Risk} · {assessment.Title}：{assessment.Reason}";
         NewValueBox.Text = register.HexValue;
         NewValueBox.IsReadOnly = !_canWrite;
         WriteUnlockCheckBox.IsEnabled = _canWrite;
@@ -98,7 +97,7 @@ public partial class RegisterAccessDialog : Window
         RegisterAccess.WriteOnlySelfClearing => "只写/写 1 自清除",
         RegisterAccess.Mixed => "混合字段（请使用协议操作）",
         RegisterAccess.Reserved => "保留（禁止写入）",
-        RegisterAccess.VendorSpecific => "厂商定义（允许写入）",
+        RegisterAccess.VendorSpecific => "厂商定义（需要高风险二次确认）",
         _ => access.ToString()
     };
 }

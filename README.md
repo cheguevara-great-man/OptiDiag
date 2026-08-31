@@ -2,6 +2,8 @@
 
 OptiDiag 是一套使用 C#、.NET 10 和 WPF 开发的光模块固件调试上位机。当前版本以纯软件方式运行，内置互相独立的 SFF-8472、CMIS 5.3 与 CMIS 5.4 可读写模拟模块；不需要任何真实 I²C 硬件即可演示协议自动检测、分页/Bank 访问和完整调试流程。
 
+当前产品版本为 **v0.6.0**。本版重点增加系统化原始写入安全模型、主题/字号偏好、只读 GitHub 版本检查、Windows CI 发布验证和面向初学者的完整学习路线。
+
 ## 当前功能
 
 - SFF-8472 Rev 12.5a 的 A0h/A2h 身份、兼容性、链路、能力、DDM、阈值、告警、状态和控制字段解析。
@@ -22,11 +24,14 @@ OptiDiag 是一套使用 C#、.NET 10 和 WPF 开发的光模块固件调试上�
 - CMIS Bank Select + Page Select 原子选择、选择值读回校验，以及带 Bank 地址的原始寄存器读写。
 - CC_BASE、CC_EXT、CC_DMI、Page 03h CC_CALIB 校验。
 - 单页寄存器全景图，按区域和十六进制地址将全部采集字节铺成 16 列内存地图；支持逐格读取和受保护写入。
-- 原始寄存器查看、区域和文本过滤、受保护的单字节写入。
+- 原始寄存器查看、区域和文本过滤，以及集中式安全写入：禁止选择器/只读/混合/保留字段，普通 RW 写前防陈旧检查并写后回读，高风险字段需要 `WRITE XX` 二次确认。
 - 周期读取、温度/电压/偏置/TX/RX 趋势曲线和内存历史缓冲。
 - 应用日志及逐事务 I²C 日志。
 - 带 SHA-256 校验的 `.omodump` 保存、加载和逐字节比较。
 - 监控历史和寄存器 CSV 导出。
+- Dark、Light、HighContrast 主题和 11–18 号基础字号，偏好安全保存到 LocalAppData。
+- 通过 GitHub 官方 API 只读检查版本，不后台下载、不自替换程序；用户从正式 Release 页面下载并核对 SHA-256。
+- GitHub Actions 自动执行 Windows Release 构建、全部测试和自包含发布包生成。
 - 软件/真实数据源选择；真实数据源的 SFF-8472/SFF-8436/SFF-8636/CMIS 协议探测规则已解耦，具体 USB-I²C 驱动待适配器型号确定后接入。
 
 ## 直接运行
@@ -56,6 +61,8 @@ dotnet test .\OptiDiag.sln
 
 ## 阅读顺序
 
+完整导航和练习路线见 [docs/README.md](docs/README.md)。首次使用建议优先阅读第 1、2、10、11 篇。
+
 1. [项目方案与阶段边界](docs/00-项目方案与阶段边界.md)
 2. [上位机与 I²C 入门](docs/01-上位机与I2C入门.md)
 3. [SFF-8472 协议导读](docs/02-SFF-8472协议导读.md)
@@ -66,10 +73,14 @@ dotnet test .\OptiDiag.sln
 8. [CMIS 协议与实现导读](docs/07-CMIS协议与实现导读.md)
 9. [CMIS 5.3 覆盖矩阵](docs/08-CMIS-5.3覆盖矩阵.md)
 10. [CMIS 5.4 覆盖矩阵与兼容说明](docs/09-CMIS-5.4覆盖矩阵.md)
+11. [从零学习与实战手册](docs/10-从零学习与实战手册.md)
+12. [安全写入与故障处理](docs/11-安全写入与故障处理.md)
+13. [真实硬件接入指南](docs/12-真实硬件接入指南.md)
+14. [质量保障与发布流程](docs/13-质量保障与发布流程.md)
 
 ## 设计边界
 
-`OptiDiag.I2c.Abstractions` 不引用 WPF 或任何协议；`OptiDiag.Protocols.Sff8472` 与 `OptiDiag.Protocols.Cmis` 并行解析内存快照；`OptiDiag.App` 不直接执行 I²C 事务。未来的真实 USB-I²C 适配器只需实现 `II2cAdapter`，未来协议只需实现 `IOpticalModuleProtocol`。
+`OptiDiag.I2c.Abstractions` 不引用 WPF 或任何协议；`OptiDiag.Protocols.Sff8472` 与 `OptiDiag.Protocols.Cmis` 并行解析内存快照；`OptiDiag.App` 不直接执行 I²C 事务。原始写入统一经过 `RegisterWritePolicy` 与 `SafeRegisterWriter`。未来的真实 USB-I²C 适配器只需实现 `II2cAdapter`，未来协议只需实现 `IOpticalModuleProtocol`。
 
 规范中的 A0h/A2h 是带读写位的 8 位名称，本项目的事务对象始终使用对应的 7 位地址 `0x50/0x51`。
 

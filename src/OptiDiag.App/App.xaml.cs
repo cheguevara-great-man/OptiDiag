@@ -1,5 +1,6 @@
 using System.Windows;
 using OptiDiag.Application;
+using OptiDiag.App.Services;
 using OptiDiag.App.ViewModels;
 using OptiDiag.I2c.Simulator;
 using OptiDiag.Infrastructure;
@@ -16,6 +17,9 @@ public partial class App : System.Windows.Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        var preferencesService = new UserPreferencesService();
+        var preferences = preferencesService.LoadAsync().GetAwaiter().GetResult();
+        ThemeManager.Apply(preferences);
         var sff8472Simulator = new Sff8472Simulator();
         var cmis53Simulator = new CmisSimulator(CmisSimulatorRevision.Cmis53);
         var cmis54Simulator = new CmisSimulator(CmisSimulatorRevision.Cmis54);
@@ -41,7 +45,10 @@ public partial class App : System.Windows.Application
             sff8472Simulator,
             new DumpFileService(),
             new DumpComparisonService(),
-            new CsvExportService());
+            new CsvExportService(),
+            preferencesService,
+            preferences,
+            new GitHubReleaseUpdateService());
 
         var window = new MainWindow
         {
