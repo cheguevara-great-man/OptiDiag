@@ -7,8 +7,8 @@
         ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
-        Background="{StaticResource WindowBrush}"
-        Foreground="{StaticResource TextBrush}"
+        Background="{DynamicResource WindowBrush}"
+        Foreground="{DynamicResource TextBrush}"
         FontFamily="Segoe UI, Microsoft YaHei UI">
     <Grid Margin="20">
         <Grid.RowDefinitions>
@@ -31,14 +31,18 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                <TextBlock Text="地址" Foreground="{StaticResource MutedTextBrush}" />
+                <TextBlock Text="地址" Foreground="{DynamicResource MutedTextBrush}" />
                 <TextBlock x:Name="AddressText" Grid.Column="1" FontFamily="Consolas" />
-                <TextBlock Grid.Row="1" Text="当前值" Foreground="{StaticResource MutedTextBrush}" Margin="0,9,0,0" />
+                <TextBlock Grid.Row="1" Text="当前值" Foreground="{DynamicResource MutedTextBrush}" Margin="0,9,0,0" />
                 <TextBlock x:Name="CurrentValueText" Grid.Row="1" Grid.Column="1"
                            FontFamily="Consolas" FontSize="18" Margin="0,7,0,0" />
-                <TextBlock Grid.Row="2" Text="访问属性" Foreground="{StaticResource MutedTextBrush}" Margin="0,9,0,0" />
+                <TextBlock Grid.Row="2" Text="访问属性" Foreground="{DynamicResource MutedTextBrush}" Margin="0,9,0,0" />
                 <TextBlock x:Name="AccessText" Grid.Row="2" Grid.Column="1" Margin="0,9,0,0" />
+                <TextBlock Grid.Row="3" Text="风险等级" Foreground="{DynamicResource MutedTextBrush}" Margin="0,9,0,0" />
+                <TextBlock x:Name="RiskText" Grid.Row="3" Grid.Column="1" Margin="0,9,0,0"
+                           TextWrapping="Wrap" Foreground="{DynamicResource WarningBrush}" />
             </Grid>
         </Border>
 

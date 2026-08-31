@@ -16,23 +16,23 @@
             <RowDefinition Height="34" />
         </Grid.RowDefinitions>
 
-        <Border Grid.Row="0" Background="#101A2B" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
+        <Border Grid.Row="0" Background="{DynamicResource HeaderBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
             <Grid Margin="18,10">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <Border Width="46" Height="46" CornerRadius="9" Background="{StaticResource AccentDarkBrush}" VerticalAlignment="Center">
-                    <TextBlock Text="OD" FontSize="17" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                <Border Width="46" Height="46" CornerRadius="9" Background="{DynamicResource AccentDarkBrush}" VerticalAlignment="Center">
+                    <TextBlock Text="OD" FontSize="17" FontWeight="Bold" Foreground="{DynamicResource OnAccentTextBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
                 </Border>
                 <StackPanel Grid.Column="1" Margin="12,0" VerticalAlignment="Center">
                     <TextBlock Text="OptiDiag" FontSize="22" FontWeight="SemiBold" />
                     <TextBlock Text="{Binding ProtocolDisplay, StringFormat=光模块固件调试 · {0}}"
-                               Foreground="{StaticResource MutedTextBrush}" FontSize="12" />
+                               Foreground="{DynamicResource MutedTextBrush}" FontSize="12" />
                 </StackPanel>
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="来源" Foreground="{StaticResource MutedTextBrush}" VerticalAlignment="Center" Margin="4" />
+                    <TextBlock Text="来源" Foreground="{DynamicResource MutedTextBrush}" VerticalAlignment="Center" Margin="4" />
                     <ComboBox Width="205"
                               ItemsSource="{Binding DataSources}"
                               DisplayMemberPath="DisplayName"
@@ -51,7 +51,7 @@
                               VerticalAlignment="Center"
                               Click="SimulationRemotePerformanceMonitoringCheckBox_Click"
                               ToolTip="勾选后采集 Page 20h-27h，并把标准映射重组为远端第二模块" />
-                    <TextBlock Text="周期" Foreground="{StaticResource MutedTextBrush}" VerticalAlignment="Center" Margin="4" />
+                    <TextBlock Text="周期" Foreground="{DynamicResource MutedTextBrush}" VerticalAlignment="Center" Margin="4" />
                     <ComboBox Width="72" SelectedIndex="0" SelectionChanged="PollingIntervalComboBox_SelectionChanged">
                         <ComboBoxItem Content="1 秒" Tag="1" />
                         <ComboBoxItem Content="2 秒" Tag="2" />
@@ -72,40 +72,40 @@
                         <TextBlock Text="模块身份" FontSize="18" FontWeight="SemiBold" Margin="5,2,5,8" />
                         <WrapPanel>
                             <Border Style="{StaticResource Card}" Width="245">
-                                <StackPanel><TextBlock Text="厂商" Foreground="{StaticResource MutedTextBrush}" /><TextBlock Text="{Binding Information.VendorName, FallbackValue=--}" FontSize="18" /></StackPanel>
+                                <StackPanel><TextBlock Text="厂商" Foreground="{DynamicResource MutedTextBrush}" /><TextBlock Text="{Binding Information.VendorName, FallbackValue=--}" FontSize="18" /></StackPanel>
                             </Border>
                             <Border Style="{StaticResource Card}" Width="245">
-                                <StackPanel><TextBlock Text="料号" Foreground="{StaticResource MutedTextBrush}" /><TextBlock Text="{Binding Information.PartNumber, FallbackValue=--}" FontSize="18" /></StackPanel>
+                                <StackPanel><TextBlock Text="料号" Foreground="{DynamicResource MutedTextBrush}" /><TextBlock Text="{Binding Information.PartNumber, FallbackValue=--}" FontSize="18" /></StackPanel>
                             </Border>
                             <Border Style="{StaticResource Card}" Width="245">
-                                <StackPanel><TextBlock Text="序列号" Foreground="{StaticResource MutedTextBrush}" /><TextBlock Text="{Binding Information.SerialNumber, FallbackValue=--}" FontSize="18" /></StackPanel>
+                                <StackPanel><TextBlock Text="序列号" Foreground="{DynamicResource MutedTextBrush}" /><TextBlock Text="{Binding Information.SerialNumber, FallbackValue=--}" FontSize="18" /></StackPanel>
                             </Border>
                             <Border Style="{StaticResource Card}" Width="245">
-                                <StackPanel><TextBlock Text="协议声明" Foreground="{StaticResource MutedTextBrush}" /><TextBlock Text="{Binding Information.Compliance, FallbackValue=--}" FontSize="18" /></StackPanel>
+                                <StackPanel><TextBlock Text="协议声明" Foreground="{DynamicResource MutedTextBrush}" /><TextBlock Text="{Binding Information.Compliance, FallbackValue=--}" FontSize="18" /></StackPanel>
                             </Border>
                             <Border Style="{StaticResource Card}" Width="245">
-                                <StackPanel><TextBlock Text="厂商 OUI" Foreground="{StaticResource MutedTextBrush}" /><TextBlock Text="{Binding Information.VendorOui, FallbackValue=--}" FontSize="18" /></StackPanel>
+                                <StackPanel><TextBlock Text="厂商 OUI" Foreground="{DynamicResource MutedTextBrush}" /><TextBlock Text="{Binding Information.VendorOui, FallbackValue=--}" FontSize="18" /></StackPanel>
                             </Border>
                             <Border Style="{StaticResource Card}" Width="245">
-                                <StackPanel><TextBlock Text="硬件版本" Foreground="{StaticResource MutedTextBrush}" /><TextBlock Text="{Binding Information.Revision, FallbackValue=--}" FontSize="18" /></StackPanel>
+                                <StackPanel><TextBlock Text="硬件版本" Foreground="{DynamicResource MutedTextBrush}" /><TextBlock Text="{Binding Information.Revision, FallbackValue=--}" FontSize="18" /></StackPanel>
                             </Border>
                             <Border Style="{StaticResource Card}" Width="245">
-                                <StackPanel><TextBlock Text="生产日期 / 批次" Foreground="{StaticResource MutedTextBrush}" /><TextBlock Text="{Binding Information.DateCode, FallbackValue=--}" FontSize="16" /></StackPanel>
+                                <StackPanel><TextBlock Text="生产日期 / 批次" Foreground="{DynamicResource MutedTextBrush}" /><TextBlock Text="{Binding Information.DateCode, FallbackValue=--}" FontSize="16" /></StackPanel>
                             </Border>
                             <Border Style="{StaticResource Card}" Width="245">
-                                <StackPanel><TextBlock Text="线路编码" Foreground="{StaticResource MutedTextBrush}" /><TextBlock Text="{Binding Information.Encoding, FallbackValue=--}" FontSize="18" /></StackPanel>
+                                <StackPanel><TextBlock Text="线路编码" Foreground="{DynamicResource MutedTextBrush}" /><TextBlock Text="{Binding Information.Encoding, FallbackValue=--}" FontSize="18" /></StackPanel>
                             </Border>
                             <Border Style="{StaticResource Card}" Width="245">
-                                <StackPanel><TextBlock Text="类型 / 连接器" Foreground="{StaticResource MutedTextBrush}" /><TextBlock Text="{Binding Information.Identifier, FallbackValue=--}" FontSize="15" /><TextBlock Text="{Binding Information.Connector, FallbackValue=--}" Foreground="{StaticResource MutedTextBrush}" /></StackPanel>
+                                <StackPanel><TextBlock Text="类型 / 连接器" Foreground="{DynamicResource MutedTextBrush}" /><TextBlock Text="{Binding Information.Identifier, FallbackValue=--}" FontSize="15" /><TextBlock Text="{Binding Information.Connector, FallbackValue=--}" Foreground="{DynamicResource MutedTextBrush}" /></StackPanel>
                             </Border>
                             <Border Style="{StaticResource Card}" Width="245">
-                                <StackPanel><TextBlock Text="波长" Foreground="{StaticResource MutedTextBrush}" /><TextBlock Text="{Binding Information.WavelengthNm, StringFormat={}{0:0} nm, FallbackValue=--}" FontSize="18" /></StackPanel>
+                                <StackPanel><TextBlock Text="波长" Foreground="{DynamicResource MutedTextBrush}" /><TextBlock Text="{Binding Information.WavelengthNm, StringFormat={}{0:0} nm, FallbackValue=--}" FontSize="18" /></StackPanel>
                             </Border>
                             <Border Style="{StaticResource Card}" Width="245">
-                                <StackPanel><TextBlock Text="标称信令速率" Foreground="{StaticResource MutedTextBrush}" /><TextBlock Text="{Binding Information.NominalSignalingRateMbd, StringFormat={}{0:0} MBd, FallbackValue=--, TargetNullValue=--}" FontSize="18" /></StackPanel>
+                                <StackPanel><TextBlock Text="标称信令速率" Foreground="{DynamicResource MutedTextBrush}" /><TextBlock Text="{Binding Information.NominalSignalingRateMbd, StringFormat={}{0:0} MBd, FallbackValue=--, TargetNullValue=--}" FontSize="18" /></StackPanel>
                             </Border>
                             <Border Style="{StaticResource Card}" Width="245">
-                                <StackPanel><TextBlock Text="最近采集" Foreground="{StaticResource MutedTextBrush}" /><TextBlock Text="{Binding SnapshotTime}" FontSize="15" /></StackPanel>
+                                <StackPanel><TextBlock Text="最近采集" Foreground="{DynamicResource MutedTextBrush}" /><TextBlock Text="{Binding SnapshotTime}" FontSize="15" /></StackPanel>
                             </Border>
                         </WrapPanel>
 
@@ -116,16 +116,16 @@
                                 <DataTemplate>
                                     <Border Style="{StaticResource Card}" Width="245">
                                         <StackPanel>
-                                            <TextBlock Text="{Binding Name}" Foreground="{StaticResource MutedTextBrush}" />
-                                            <TextBlock Text="{Binding FormattedValue}" FontSize="24" FontWeight="SemiBold" Foreground="{StaticResource AccentBrush}" Margin="0,4" />
-                                            <TextBlock Text="{Binding SecondaryFormattedValue}" Foreground="{StaticResource AccentBrush}">
+                                            <TextBlock Text="{Binding Name}" Foreground="{DynamicResource MutedTextBrush}" />
+                                            <TextBlock Text="{Binding FormattedValue}" FontSize="24" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}" Margin="0,4" />
+                                            <TextBlock Text="{Binding SecondaryFormattedValue}" Foreground="{DynamicResource AccentBrush}">
                                                 <TextBlock.Style>
                                                     <Style TargetType="TextBlock">
                                                         <Style.Triggers><DataTrigger Binding="{Binding SecondaryFormattedValue}" Value="{x:Null}"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers>
                                                     </Style>
                                                 </TextBlock.Style>
                                             </TextBlock>
-                                            <TextBlock Text="{Binding RawValue, StringFormat=Raw 0x{0:X4}}" Foreground="{StaticResource MutedTextBrush}" FontFamily="Consolas" />
+                                            <TextBlock Text="{Binding RawValue, StringFormat=Raw 0x{0:X4}}" Foreground="{DynamicResource MutedTextBrush}" FontFamily="Consolas" />
                                         </StackPanel>
                                     </Border>
                                 </DataTemplate>
@@ -154,9 +154,9 @@
                                 <DataTemplate>
                                     <Border Style="{StaticResource Card}" Width="210">
                                         <StackPanel>
-                                            <TextBlock Text="{Binding Name}" Foreground="{StaticResource MutedTextBrush}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding Name}" Foreground="{DynamicResource MutedTextBrush}" TextTrimming="CharacterEllipsis" />
                                             <TextBlock Text="{Binding FormattedValue}" FontSize="20" FontWeight="SemiBold" />
-                                            <TextBlock Text="{Binding SecondaryFormattedValue}" Foreground="{StaticResource AccentBrush}" />
+                                            <TextBlock Text="{Binding SecondaryFormattedValue}" Foreground="{DynamicResource AccentBrush}" />
                                         </StackPanel>
                                     </Border>
                                 </DataTemplate>
@@ -213,19 +213,19 @@
                     <WrapPanel>
                         <Border Style="{StaticResource Card}" Width="275">
                             <StackPanel>
-                                <TextBlock Text="基础协议（自动检测）" Foreground="{StaticResource MutedTextBrush}" />
-                                <TextBlock Text="{Binding ProtocolDisplay}" FontSize="18" Foreground="{StaticResource AccentBrush}" />
+                                <TextBlock Text="基础协议（自动检测）" Foreground="{DynamicResource MutedTextBrush}" />
+                                <TextBlock Text="{Binding ProtocolDisplay}" FontSize="18" Foreground="{DynamicResource AccentBrush}" />
                             </StackPanel>
                         </Border>
                         <Border Style="{StaticResource Card}" Width="300">
                             <StackPanel>
-                                <TextBlock Text="扩展协议" Foreground="{StaticResource MutedTextBrush}" />
+                                <TextBlock Text="扩展协议" Foreground="{DynamicResource MutedTextBrush}" />
                                 <TextBlock Text="{Binding ProtocolExtensionDisplay}" FontSize="18" />
                             </StackPanel>
                         </Border>
                         <Border Style="{StaticResource Card}" Width="610">
                             <StackPanel>
-                                <TextBlock Text="检测依据" Foreground="{StaticResource MutedTextBrush}" />
+                                <TextBlock Text="检测依据" Foreground="{DynamicResource MutedTextBrush}" />
                                 <TextBlock Text="{Binding ProtocolDetectionEvidence}" TextWrapping="Wrap" />
                             </StackPanel>
                         </Border>
@@ -253,19 +253,19 @@
                                 <WrapPanel>
                                     <Border Style="{StaticResource Card}" Width="240">
                                         <StackPanel>
-                                            <TextBlock Text="远端厂商" Foreground="{StaticResource MutedTextBrush}" />
+                                            <TextBlock Text="远端厂商" Foreground="{DynamicResource MutedTextBrush}" />
                                             <TextBlock Text="{Binding RemoteInformation.VendorName, FallbackValue=未检测到远端模块}" FontSize="17" />
                                         </StackPanel>
                                     </Border>
                                     <Border Style="{StaticResource Card}" Width="260">
                                         <StackPanel>
-                                            <TextBlock Text="远端料号" Foreground="{StaticResource MutedTextBrush}" />
+                                            <TextBlock Text="远端料号" Foreground="{DynamicResource MutedTextBrush}" />
                                             <TextBlock Text="{Binding RemoteInformation.PartNumber, FallbackValue=--}" FontSize="17" />
                                         </StackPanel>
                                     </Border>
                                     <Border Style="{StaticResource Card}" Width="270">
                                         <StackPanel>
-                                            <TextBlock Text="远端序列号" Foreground="{StaticResource MutedTextBrush}" />
+                                            <TextBlock Text="远端序列号" Foreground="{DynamicResource MutedTextBrush}" />
                                             <TextBlock Text="{Binding RemoteInformation.SerialNumber, FallbackValue=--}" FontSize="17" />
                                         </StackPanel>
                                     </Border>
@@ -276,7 +276,7 @@
                                         <DataTemplate>
                                             <Border Style="{StaticResource Card}" Width="205">
                                                 <StackPanel>
-                                                    <TextBlock Text="{Binding Name}" Foreground="{StaticResource MutedTextBrush}" />
+                                                    <TextBlock Text="{Binding Name}" Foreground="{DynamicResource MutedTextBrush}" />
                                                     <TextBlock Text="{Binding FormattedValue}" FontSize="18" />
                                                 </StackPanel>
                                             </Border>
@@ -310,7 +310,7 @@
                         <StackPanel>
                             <TextBlock Text="CMIS 5.3 / 5.4 Command Data Block" FontSize="18" FontWeight="SemiBold" />
                             <TextBlock Margin="0,5,0,0"
-                                       Foreground="{StaticResource MutedTextBrush}"
+                                       Foreground="{DynamicResource MutedTextBrush}"
                                        TextWrapping="Wrap"
                                        Text="命令表会按自动检测到的 CMIS 版本切换：5.3 保留原命令，5.4 增加模块时间和固件管理命令并隐藏已移除命令。发送顺序、CMDID 触发、LPL/EPL 和校验由软件自动处理。" />
                         </StackPanel>
@@ -335,7 +335,7 @@
                                         <Run Text="  " />
                                         <Run Text="{Binding Title}" />
                                         <Run Text="  ·  " />
-                                        <Run Text="{Binding Section}" Foreground="{StaticResource MutedTextBrush}" />
+                                        <Run Text="{Binding Section}" Foreground="{DynamicResource MutedTextBrush}" />
                                     </TextBlock>
                                 </DataTemplate>
                             </ComboBox.ItemTemplate>
@@ -346,9 +346,9 @@
                                   SelectedItem="{Binding CdbInstance}"
                                   IsEnabled="{Binding IsCmisActive}" />
                         <StackPanel Grid.Column="4" Margin="14,1" VerticalAlignment="Center">
-                            <TextBlock Foreground="{StaticResource MutedTextBrush}"
+                            <TextBlock Foreground="{DynamicResource MutedTextBrush}"
                                        Text="{Binding SelectedCdbCommand.Group, StringFormat=命令组：{0}}" />
-                            <TextBlock Foreground="{StaticResource MutedTextBrush}"
+                            <TextBlock Foreground="{DynamicResource MutedTextBrush}"
                                        TextWrapping="Wrap"
                                        Text="{Binding CdbParameterHelp}" />
                         </StackPanel>
@@ -360,7 +360,7 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <StackPanel Margin="0,0,8,0">
-                            <TextBlock Text="LPL 参数（0–120 字节，HEX）" Foreground="{StaticResource MutedTextBrush}" />
+                            <TextBlock Text="LPL 参数（0–120 字节，HEX）" Foreground="{DynamicResource MutedTextBrush}" />
                             <TextBox Text="{Binding CdbLocalPayloadHex, UpdateSourceTrigger=PropertyChanged}"
                                      FontFamily="Cascadia Mono, Consolas"
                                      MinHeight="64"
@@ -369,7 +369,7 @@
                                      IsEnabled="{Binding IsCmisActive}" />
                         </StackPanel>
                         <StackPanel Grid.Column="1" Margin="0,0,8,0">
-                            <TextBlock Text="EPL 参数（0–2048 字节，HEX，可留空）" Foreground="{StaticResource MutedTextBrush}" />
+                            <TextBlock Text="EPL 参数（0–2048 字节，HEX，可留空）" Foreground="{DynamicResource MutedTextBrush}" />
                             <TextBox Text="{Binding CdbExtendedPayloadHex, UpdateSourceTrigger=PropertyChanged}"
                                      FontFamily="Cascadia Mono, Consolas"
                                      MinHeight="64"
@@ -399,7 +399,7 @@
                                      VerticalScrollBarVisibility="Auto"
                                      MinHeight="120" />
                             <TextBlock Margin="0,8,0,0"
-                                       Foreground="{StaticResource WarningBrush}"
+                                       Foreground="{DynamicResource WarningBrush}"
                                        TextWrapping="Wrap"
                                        Text="固件下载、密码修改、安全证书等命令会改变模块状态；接入真实硬件后请先确认命令参数和厂商限制。模拟器当前安全实现 Query Status 和能力查询，其余命令返回通用成功回复以测试上位机流程。" />
                         </StackPanel>
@@ -417,8 +417,8 @@
                           ColumnHeaderHeight="31"
                           HeadersVisibility="Column"
                           GridLinesVisibility="All"
-                          HorizontalGridLinesBrush="#2A3A55"
-                          VerticalGridLinesBrush="#2A3A55"
+                          HorizontalGridLinesBrush="{DynamicResource GridBrush}"
+                          VerticalGridLinesBrush="{DynamicResource GridBrush}"
                           FrozenColumnCount="1"
                           SelectionUnit="Cell"
                           CanUserSortColumns="False"
@@ -428,9 +428,9 @@
                           MouseDoubleClick="RegisterMapGrid_MouseDoubleClick"
                           PreviewMouseRightButtonDown="RegisterMapGrid_PreviewMouseRightButtonDown">
                     <DataGrid.ContextMenu>
-                        <ContextMenu Background="#17243A"
-                                     Foreground="{StaticResource TextBrush}"
-                                     BorderBrush="{StaticResource AccentDarkBrush}">
+                        <ContextMenu Background="{DynamicResource PanelAltBrush}"
+                                     Foreground="{DynamicResource TextBrush}"
+                                     BorderBrush="{DynamicResource AccentDarkBrush}">
                             <MenuItem Header="读取此寄存器" Click="RegisterMapReadMenuItem_Click" />
                             <MenuItem Header="写入此寄存器…" Click="RegisterMapWriteMenuItem_Click" />
                         </ContextMenu>
@@ -489,12 +489,12 @@
                     </DataGrid>
                     <Border Grid.Row="2" Style="{StaticResource Card}" Margin="0,8,0,0">
                         <DockPanel>
-                            <TextBlock Text="选择：" Foreground="{StaticResource MutedTextBrush}" VerticalAlignment="Center" />
+                            <TextBlock Text="选择：" Foreground="{DynamicResource MutedTextBrush}" VerticalAlignment="Center" />
                             <TextBlock Text="{Binding SelectedRegister.AddressText, FallbackValue=--}" FontFamily="Consolas" VerticalAlignment="Center" Margin="5,0,18,0" />
                             <TextBlock Text="新值（HEX）" VerticalAlignment="Center" />
                             <TextBox x:Name="WriteValueBox" Width="75" Margin="8,0" Text="{Binding SelectedRegister.HexValue, Mode=OneWay}" MaxLength="2" FontFamily="Consolas" />
                             <Button Content="写入选中寄存器" Click="WriteRegisterButton_Click" />
-                            <TextBlock Text="只读和保留字段始终禁止写入；所有写操作记录审计日志。" Foreground="{StaticResource WarningBrush}" VerticalAlignment="Center" Margin="14,0" />
+                            <TextBlock Text="只读和保留字段始终禁止写入；所有写操作记录审计日志。" Foreground="{DynamicResource WarningBrush}" VerticalAlignment="Center" Margin="14,0" />
                         </DockPanel>
                     </Border>
                 </Grid>
@@ -555,29 +555,93 @@
                 </TabControl>
             </TabItem>
 
+            <TabItem Header="设置与安全">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="18" MaxWidth="980" HorizontalAlignment="Left">
+                        <TextBlock Text="界面偏好" FontSize="21" FontWeight="SemiBold" />
+                        <TextBlock Text="设置保存到当前 Windows 用户的 LocalAppData，不会写入项目目录。"
+                                   Foreground="{DynamicResource MutedTextBrush}" Margin="0,4,0,12" />
+                        <Border Style="{StaticResource Card}" Width="760" HorizontalAlignment="Left">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="130" />
+                                    <ColumnDefinition Width="210" />
+                                    <ColumnDefinition Width="130" />
+                                    <ColumnDefinition Width="170" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="主题" VerticalAlignment="Center" />
+                                <ComboBox x:Name="ThemeComboBox" Grid.Column="1"
+                                          ItemsSource="{Binding ThemeOptions}"
+                                          SelectedItem="{Binding SelectedTheme, Mode=OneWay}"
+                                          SelectionChanged="AppearanceComboBox_SelectionChanged" />
+                                <TextBlock Grid.Column="2" Text="基础字号" VerticalAlignment="Center" Margin="18,0,0,0" />
+                                <ComboBox x:Name="FontSizeComboBox" Grid.Column="3"
+                                          ItemsSource="{Binding FontSizeOptions}"
+                                          SelectedItem="{Binding SelectedFontSize, Mode=OneWay}"
+                                          SelectionChanged="AppearanceComboBox_SelectionChanged" />
+                            </Grid>
+                        </Border>
+
+                        <TextBlock Text="版本与更新" FontSize="21" FontWeight="SemiBold" Margin="0,24,0,8" />
+                        <Border Style="{StaticResource Card}" Width="760" HorizontalAlignment="Left">
+                            <StackPanel>
+                                <WrapPanel>
+                                    <Button Content="检查 GitHub 正式版本" Style="{StaticResource PrimaryButton}"
+                                            Click="CheckUpdateButton_Click" />
+                                    <Button Content="打开 Release 页面"
+                                            IsEnabled="{Binding CanOpenLatestRelease}"
+                                            Click="OpenReleaseButton_Click" />
+                                    <CheckBox x:Name="CheckUpdatesOnStartupCheckBox"
+                                              Content="启动时仅检查版本（不自动下载或替换程序）"
+                                              IsChecked="{Binding CheckUpdatesOnStartup, Mode=OneWay}"
+                                              Click="CheckUpdatesOnStartupCheckBox_Click"
+                                              VerticalAlignment="Center" />
+                                </WrapPanel>
+                                <TextBlock Text="{Binding UpdateStatus}" TextWrapping="Wrap" Margin="4,10,4,2" />
+                                <TextBlock Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap" Margin="4,3">
+                                    为避免供应链和自替换风险，OptiDiag 只通过 GitHub API读取版本号并打开浏览器；下载安装包、核对 Release 的 SHA-256 和替换程序始终由用户明确完成。
+                                </TextBlock>
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Text="原始写入安全模型" FontSize="21" FontWeight="SemiBold" Margin="0,24,0,8" />
+                        <Border Style="{StaticResource Card}" Width="760" HorizontalAlignment="Left">
+                            <StackPanel>
+                                <TextBlock Text="1. Blocked：只读、读清除、混合、保留及 Bank/Page 选择器禁止原始写入。" TextWrapping="Wrap" Margin="0,3" />
+                                <TextBlock Text="2. Elevated：普通 RW 字段必须解锁、确认、写前核对旧值、写后回读。" TextWrapping="Wrap" Margin="0,3" />
+                                <TextBlock Text="3. Critical：自清除、只写、厂商自定义和危险语义字段还必须输入 WRITE XX 二次确认。" TextWrapping="Wrap" Margin="0,3" />
+                                <TextBlock Text="4. 写入期间暂停周期读取；结果、风险理由和回读情况写入审计日志。" TextWrapping="Wrap" Margin="0,3" />
+                                <TextBlock Text="提示：安全机制不能替代厂商文档和链路维护窗口。"
+                                           Foreground="{DynamicResource WarningBrush}" FontWeight="SemiBold" Margin="0,10,0,0" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
             <TabItem Header="关于">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="28" MaxWidth="920" HorizontalAlignment="Left">
                         <TextBlock Text="OptiDiag" FontSize="30" FontWeight="SemiBold" />
-                        <TextBlock Text="面向光模块固件调试的 Windows 上位机" FontSize="16" Foreground="{StaticResource MutedTextBrush}" Margin="0,4,0,22" />
+                        <TextBlock Text="面向光模块固件调试的 Windows 上位机" FontSize="16" Foreground="{DynamicResource MutedTextBrush}" Margin="0,4,0,22" />
                         <TextBlock TextWrapping="Wrap" LineHeight="24">
                             当前构建内置相互独立的 SFF-8472、CMIS 5.3 与 CMIS 5.4 模拟器。CMIS 包含版本化页面、VDM、CDB 和固件下载状态机；外部补充规范页面会明确标注并保留原始数据。界面通过应用服务访问协议层，I²C 抽象不依赖 WPF。后续增加真实适配器、SFF-8636 或公司自定义协议时，不需要重写现有解码器。
                         </TextBlock>
                         <TextBlock Text="地址说明" FontSize="18" FontWeight="SemiBold" Margin="0,24,0,6" />
                         <TextBlock TextWrapping="Wrap" LineHeight="23">规范名称 A0h/A2h 包含读写位；本软件事务日志中的 0x50/0x51 是对应的 7 位 I²C 地址。</TextBlock>
                         <TextBlock Text="实现基线" FontSize="18" FontWeight="SemiBold" Margin="0,24,0,6" />
-                        <TextBlock Text="CMIS Rev 5.3 · SFF-8472 Rev 12.5a · SFF-8024 Rev 4.14 · .NET 10 LTS · WPF" />
+                        <TextBlock Text="OptiDiag v0.6.0 · CMIS Rev 5.3/5.4 · SFF-8472 Rev 12.5a · SFF-8690 Rev 1.5 · .NET 10 · WPF" />
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
         </TabControl>
 
-        <Border Grid.Row="2" Background="#101A2B" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0">
+        <Border Grid.Row="2" Background="{DynamicResource HeaderBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0">
             <Grid Margin="14,0">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                <TextBlock Text="{Binding ConnectionStatus}" Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" />
-                <TextBlock Grid.Column="1" Text="{Binding StatusMessage}" Foreground="{StaticResource MutedTextBrush}" VerticalAlignment="Center" Margin="18,0" TextTrimming="CharacterEllipsis" />
-                <TextBlock Grid.Column="2" Text="{Binding DataSourceDisplay}" Foreground="{StaticResource MutedTextBrush}" VerticalAlignment="Center" />
+                <TextBlock Text="{Binding ConnectionStatus}" Foreground="{DynamicResource AccentBrush}" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="1" Text="{Binding StatusMessage}" Foreground="{DynamicResource MutedTextBrush}" VerticalAlignment="Center" Margin="18,0" TextTrimming="CharacterEllipsis" />
+                <TextBlock Grid.Column="2" Text="{Binding DataSourceDisplay}" Foreground="{DynamicResource MutedTextBrush}" VerticalAlignment="Center" />
             </Grid>
         </Border>
     </Grid>

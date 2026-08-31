@@ -2,7 +2,11 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Diagnostics;
 using Microsoft.Win32;
+using OptiDiag.Application;
+using OptiDiag.App.Services;
+using OptiDiag.Protocols.Abstractions;
 using OptiDiag.App.ViewModels;
 
 namespace OptiDiag.App;
@@ -27,6 +31,10 @@ public partial class MainWindow : Window
 
         _loaded = true;
         await ExecuteAsync(ViewModel.ConnectAsync);
+        if (ViewModel.CheckUpdatesOnStartup)
+        {
+            await ViewModel.CheckForUpdatesAsync();
+        }
     }
 
     private async void ConnectButton_Click(object sender, RoutedEventArgs e)
@@ -178,16 +186,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var answer = MessageBox.Show(
-            this,
-            $"确认写入 {register.AddressText}？\n旧值：{register.HexValue}\n新值：{WriteValueBox.Text}\n\n模拟器中的写入也会记录到审计日志。",
-            "确认寄存器写入",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Warning);
-        if (answer == MessageBoxResult.Yes)
-        {
-            await ExecuteAsync(() => ViewModel.WriteSelectedRegisterAsync(WriteValueBox.Text));
-        }
+        await ConfirmAndWriteAsync(register, WriteValueBox.Text, ViewModel.WriteUnlocked);
     }
 
     private async void RegisterMapGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)
@@ -260,23 +259,88 @@ public partial class MainWindow : Window
             return;
         }
 
-        var answer = MessageBox.Show(
-            this,
-            $"确认写入 {register.AddressText}？\n"
-            + $"旧值：0x{register.HexValue}\n"
-            + $"新值：0x{dialog.RequestedHexValue}\n\n"
-            + "该操作会立即发送 I²C 写事务，并记录到审计日志。",
-            "确认寄存器写入",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Warning);
-        if (answer == MessageBoxResult.Yes)
+        await ConfirmAndWriteAsync(register, dialog.RequestedHexValue, dialog.WriteUnlocked);
+    }
+
+    private async Task ConfirmAndWriteAsync(RegisterValue register, string hexValue, bool writeUnlocked)
+    {
+        var assessment = ViewModel.AssessRegisterWrite(register);
+        if (!assessment.IsAllowed)
         {
-            await ExecuteAsync(
-                () => ViewModel.WriteRegisterAsync(
-                    register,
-                    dialog.RequestedHexValue,
-                    dialog.WriteUnlocked));
+            MessageBox.Show(
+                this,
+                assessment.Reason,
+                assessment.Title,
+                MessageBoxButton.OK,
+                MessageBoxImage.Stop);
+            return;
         }
+
+        var criticalConfirmed = false;
+        if (assessment.RequiresTypedConfirmation)
+        {
+            var dialog = new CriticalWriteConfirmationDialog(register, hexValue, assessment)
+            {
+                Owner = this
+            };
+            criticalConfirmed = dialog.ShowDialog() == true;
+            if (!criticalConfirmed)
+            {
+                return;
+            }
+        }
+        else
+        {
+            var answer = MessageBox.Show(
+                this,
+                $"{assessment.Reason}\n\n地址：{register.AddressText}\n"
+                + $"旧值：0x{register.HexValue}\n新值：0x{hexValue}\n\n"
+                + "系统会先确认旧值未变化，再写入并回读验证。",
+                assessment.Title,
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+            if (answer != MessageBoxResult.Yes)
+            {
+                return;
+            }
+        }
+
+        await ExecuteAsync(
+            () => ViewModel.WriteRegisterAsync(register, hexValue, writeUnlocked, criticalConfirmed));
+    }
+
+    private async void AppearanceComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_loaded
+            || ThemeComboBox.SelectedItem is not string theme
+            || FontSizeComboBox.SelectedItem is not int fontSize)
+        {
+            return;
+        }
+
+        await ExecuteAsync(async () =>
+        {
+            await ViewModel.SetAppearanceAsync(theme, fontSize);
+            ThemeManager.Apply(ViewModel.Preferences);
+        });
+    }
+
+    private async void CheckUpdatesOnStartupCheckBox_Click(object sender, RoutedEventArgs e) =>
+        await ExecuteAsync(
+            () => ViewModel.SetCheckUpdatesOnStartupAsync(
+                CheckUpdatesOnStartupCheckBox.IsChecked == true));
+
+    private async void CheckUpdateButton_Click(object sender, RoutedEventArgs e) =>
+        await ViewModel.CheckForUpdatesAsync();
+
+    private void OpenReleaseButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel.LatestReleaseUrl is not { } url)
+        {
+            return;
+        }
+
+        Process.Start(new ProcessStartInfo(url.AbsoluteUri) { UseShellExecute = true });
     }
 
     private static T? FindVisualParent<T>(DependencyObject? child)

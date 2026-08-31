@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Globalization;
 using System.IO;
+using System.Net.Http;
 using System.Windows.Data;
 using OptiDiag.Application;
 using OptiDiag.App.Services;
@@ -42,6 +43,9 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     private readonly DumpFileService _dumpFiles;
     private readonly DumpComparisonService _dumpComparer;
     private readonly CsvExportService _csvExporter;
+    private readonly UserPreferencesService _preferencesService;
+    private readonly GitHubReleaseUpdateService _updateService;
+    private readonly SafeRegisterWriter _registerWriter;
     private readonly SemaphoreSlim _logGate = new(1, 1);
     private readonly string _logPath;
     private SessionSnapshot? _latest;
@@ -66,6 +70,9 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     private int _cdbInstance = 1;
     private string _cdbResult = "请选择 CMIS 数据源并连接，然后可执行 CDB 命令。";
     private byte _cdbCatalogRevision;
+    private UserPreferences _preferences;
+    private string _updateStatus = "尚未检查更新";
+    private Uri? _latestReleaseUrl;
 
     public MainWindowViewModel(
         ModuleSession session,
@@ -74,7 +81,10 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         Sff8472Simulator sff8472Simulator,
         DumpFileService dumpFiles,
         DumpComparisonService dumpComparer,
-        CsvExportService csvExporter)
+        CsvExportService csvExporter,
+        UserPreferencesService preferencesService,
+        UserPreferences preferences,
+        GitHubReleaseUpdateService updateService)
     {
         _session = session;
         _poller = poller;
@@ -83,6 +93,10 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         _dumpFiles = dumpFiles;
         _dumpComparer = dumpComparer;
         _csvExporter = csvExporter;
+        _preferencesService = preferencesService;
+        _preferences = preferences.Normalize();
+        _updateService = updateService;
+        _registerWriter = new SafeRegisterWriter(session);
         DataSources =
         [
             new DataSourceOption(
@@ -122,6 +136,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         _poller.PollingFailed += OnPollingFailed;
         Regions.Add("全部");
         AddLog("INFO", "OptiDiag 已启动，硬件通信层当前使用标准模拟器。");
+        PollingIntervalSeconds = _preferences.PollingIntervalSeconds;
     }
 
     public ObservableCollection<Measurement> Measurements { get; } = [];
@@ -144,6 +159,51 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     public IReadOnlyList<DataSourceOption> DataSources { get; }
     public ObservableCollection<CmisCdbCommandDefinition> CmisCdbCommands { get; } = [];
     public IReadOnlyList<int> CdbInstances { get; } = [1, 2];
+    public IReadOnlyList<string> ThemeOptions { get; } = ["Dark", "Light", "HighContrast"];
+    public IReadOnlyList<int> FontSizeOptions { get; } = [11, 12, 13, 14, 16, 18];
+
+    public UserPreferences Preferences
+    {
+        get => _preferences;
+        private set
+        {
+            if (SetProperty(ref _preferences, value))
+            {
+                OnPropertyChanged(nameof(SelectedTheme));
+                OnPropertyChanged(nameof(SelectedFontSize));
+                OnPropertyChanged(nameof(CheckUpdatesOnStartup));
+            }
+        }
+    }
+
+    public string SelectedTheme => Preferences.Theme;
+
+    public int SelectedFontSize => Preferences.FontSize;
+
+    public bool CheckUpdatesOnStartup => Preferences.CheckUpdatesOnStartup;
+
+    public string UpdateStatus
+    {
+        get => _updateStatus;
+        private set => SetProperty(ref _updateStatus, value);
+    }
+
+    public Uri? LatestReleaseUrl
+    {
+        get => _latestReleaseUrl;
+        private set
+        {
+            if (SetProperty(ref _latestReleaseUrl, value))
+            {
+                OnPropertyChanged(nameof(CanOpenLatestRelease));
+            }
+        }
+    }
+
+    public bool CanOpenLatestRelease => LatestReleaseUrl is not null;
+
+    public static Version CurrentAppVersion =>
+        typeof(MainWindowViewModel).Assembly.GetName().Version ?? new Version(0, 6, 0);
 
     public ModuleInformation? Information
     {
@@ -403,7 +463,47 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
             if (SetProperty(ref _pollingIntervalSeconds, normalized))
             {
                 _poller.Interval = TimeSpan.FromSeconds(normalized);
+                if (_preferences.PollingIntervalSeconds != normalized)
+                {
+                    Preferences = _preferences with { PollingIntervalSeconds = normalized };
+                    _ = SavePreferencesSafelyAsync();
+                }
             }
+        }
+    }
+
+    public RegisterWriteAssessment AssessRegisterWrite(RegisterValue register) =>
+        RegisterWritePolicy.Assess(register);
+
+    public async Task SetAppearanceAsync(string theme, int fontSize)
+    {
+        Preferences = (_preferences with { Theme = theme, FontSize = fontSize }).Normalize();
+        await SavePreferencesAsync().ConfigureAwait(true);
+        StatusMessage = $"外观已保存：{Preferences.Theme}，{Preferences.FontSize} pt。";
+    }
+
+    public async Task SetCheckUpdatesOnStartupAsync(bool enabled)
+    {
+        Preferences = _preferences with { CheckUpdatesOnStartup = enabled };
+        await SavePreferencesAsync().ConfigureAwait(true);
+    }
+
+    public async Task CheckForUpdatesAsync()
+    {
+        UpdateStatus = "正在通过 GitHub 官方 API 检查更新…";
+        try
+        {
+            var result = await _updateService.CheckAsync(CurrentAppVersion).ConfigureAwait(true);
+            LatestReleaseUrl = result.ReleasePage;
+            UpdateStatus = result.IsUpdateAvailable
+                ? $"发现 {result.Tag}：{result.Title}。点击可打开正式 Release 页面。"
+                : $"当前已是最新版本（本机 v{CurrentAppVersion.ToString(3)}，GitHub {result.Tag}）。";
+            AddLog("INFO", UpdateStatus);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidDataException or TaskCanceledException)
+        {
+            UpdateStatus = $"更新检查失败：{ex.Message}。这不会影响本地调试。";
+            AddLog("WARN", UpdateStatus);
         }
     }
 
@@ -633,46 +733,74 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         return updated;
     }
 
-    public Task WriteSelectedRegisterAsync(string hexValue)
+    public Task WriteSelectedRegisterAsync(string hexValue, bool criticalConfirmed)
     {
         var register = SelectedRegister ?? throw new InvalidOperationException("请先选择一个寄存器。");
-        return WriteRegisterAsync(register, hexValue, WriteUnlocked);
+        return WriteRegisterAsync(register, hexValue, WriteUnlocked, criticalConfirmed);
     }
 
-    public async Task WriteRegisterAsync(RegisterValue register, string hexValue, bool writeUnlocked)
+    public async Task WriteRegisterAsync(
+        RegisterValue register,
+        string hexValue,
+        bool writeUnlocked,
+        bool criticalConfirmed)
     {
-        if (!writeUnlocked)
-        {
-            throw new InvalidOperationException("请先开启写操作解锁。");
-        }
-
-        if (register.Access is RegisterAccess.ReadOnly
-            or RegisterAccess.ReadOnlyClearOnRead
-            or RegisterAccess.Mixed
-            or RegisterAccess.Reserved)
-        {
-            throw new InvalidOperationException($"{register.Name} 是 {register.Access}，禁止写入。");
-        }
-
         var normalized = hexValue.Trim().Replace("0x", string.Empty, StringComparison.OrdinalIgnoreCase);
         if (!byte.TryParse(normalized, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var value))
         {
             throw new FormatException("请输入 00-FF 范围内的十六进制字节。");
         }
 
-        await _session.WriteByteAsync(
-            register.DeviceAddress,
-            register.Page,
-            checked((byte)register.Offset),
-            value,
-            bank: register.Bank,
-            bankSelectOffset: register.Bank.HasValue ? (byte)126 : null).ConfigureAwait(true);
-        AddLog("WARN", $"写寄存器 {register.AddressText}: {register.HexValue} -> {value:X2}");
-        await RefreshAsync().ConfigureAwait(true);
-        StatusMessage = $"已写入 {register.AddressText}：0x{register.HexValue} → 0x{value:X2}，并完成重新读取。";
+        var wasPolling = IsPolling;
+        if (wasPolling)
+        {
+            await _poller.StopAsync().ConfigureAwait(true);
+            OnPropertyChanged(nameof(IsPolling));
+        }
+
+        try
+        {
+            var result = await _registerWriter.WriteAsync(
+                register,
+                value,
+                writeUnlocked,
+                criticalConfirmed).ConfigureAwait(true);
+            var verification = result.ReadBackValue.HasValue
+                ? $"，回读 0x{result.ReadBackValue:X2} 已验证"
+                : "，触发型/只写字段按协议跳过同值回读";
+            AddLog(
+                result.Assessment.Risk == RegisterWriteRisk.Critical ? "CRITICAL" : "WARN",
+                $"寄存器写入 [{result.Assessment.Risk}] {register.AddressText}: "
+                + $"0x{result.PreviousValue:X2} -> 0x{value:X2}{verification}；{result.Assessment.Reason}");
+            await RefreshAsync().ConfigureAwait(true);
+            StatusMessage =
+                $"已写入 {register.AddressText}：0x{result.PreviousValue:X2} → 0x{value:X2}{verification}。";
+        }
+        finally
+        {
+            if (wasPolling && _session.IsConnected)
+            {
+                _poller.Start();
+                OnPropertyChanged(nameof(IsPolling));
+            }
+        }
     }
 
     public void ClearTraces() => Traces.Clear();
+
+    private Task SavePreferencesAsync() => _preferencesService.SaveAsync(_preferences);
+
+    private async Task SavePreferencesSafelyAsync()
+    {
+        try
+        {
+            await SavePreferencesAsync().ConfigureAwait(true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            AddLog("WARN", $"无法保存用户偏好：{ex.Message}");
+        }
+    }
 
     private void ApplySnapshot(SessionSnapshot snapshot)
     {
